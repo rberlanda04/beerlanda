@@ -118,6 +118,38 @@ async function writeGoogleSheetRows(range: string, values: any[][], token: strin
   }
 }
 
+// -------------------------------------------------------------
+// ADMIN AUTHORIZATION
+// -------------------------------------------------------------
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+// Resolves the Google account email behind an OAuth access token by asking
+// Google directly, so the server never has to trust a client-supplied identity.
+async function getVerifiedEmailFromToken(token: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(token)}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.email || data.email_verified !== "true") return null;
+    return String(data.email).toLowerCase();
+  } catch (error) {
+    console.error("[Auth] Erro ao verificar token junto ao Google:", error);
+    return null;
+  }
+}
+
+async function isAuthorizedAdmin(token: string): Promise<boolean> {
+  if (ADMIN_EMAILS.length === 0) {
+    console.warn("[Auth] ADMIN_EMAILS não configurado — nenhum admin autorizado.");
+    return false;
+  }
+  const email = await getVerifiedEmailFromToken(token);
+  return !!email && ADMIN_EMAILS.includes(email);
+}
+
 // Map Google Sheets rows to typed objects using column headers
 function mapRowsToObjects<T>(rows: any[][]): T[] {
   if (!rows || rows.length <= 1) return [];
@@ -347,4 +379,4 @@ async function getReviewsFromSheet(token?: string): Promise<Review[]> {
   });
 }
 
-export { fetchGoogleSheetRows, createSheetTabIfNotExist, writeGoogleSheetRows, fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet };
+export { fetchGoogleSheetRows, createSheetTabIfNotExist, writeGoogleSheetRows, fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, isAuthorizedAdmin };

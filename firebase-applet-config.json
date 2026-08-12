@@ -1,11 +1,11 @@
 {
-  "projectId": "gen-lang-client-0370389677",
-  "appId": "1:721981466900:web:135e0fe528c55291fdfa01",
-  "apiKey": "AIzaSyCNAE5V6ubmOoB5KF3Q6rAqRGgi0Kjcne0",
-  "authDomain": "gen-lang-client-0370389677.firebaseapp.com",
-  "storageBucket": "gen-lang-client-0370389677.firebasestorage.app",
-  "messagingSenderId": "721981466900",
-  "measurementId": "",
-  "oAuthClientId": "721981466900-jng6imch199pad1928jiln6sij4hpct7.apps.googleusercontent.com",
+  "projectId": "beerlanda",
+  "appId": "1:104223750661:web:06e2a7ff343725a036ba6c",
+  "apiKey": "AIzaSyDW6pkkhb0xJBacuzTbpCDP3At0fx7OfRI",
+  "authDomain": "beerlanda.firebaseapp.com",
+  "storageBucket": "beerlanda.firebasestorage.app",
+  "messagingSenderId": "104223750661",
+  "measurementId": "G-17EJ6DM794",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

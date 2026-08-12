@@ -1,15 +1,49 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import rateLimit from 'express-rate-limit';
 import { Order } from '../../src/types';
 import { MOCK_PRODUCTS, MOCK_COUPONS, MOCK_REVIEWS, IN_MEMORY_ORDERS } from '../data/mock';
-import { fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows } from '../services/googleService';
+import { fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, isAuthorizedAdmin } from '../services/googleService';
 
 const router = express.Router();
 
 function getRequestToken(req: any): string | undefined {
   return req.headers.authorization?.replace(/^Bearer\s+/i, "");
 }
+
+// Only lets requests through whose Google account is on the ADMIN_EMAILS
+// allowlist — without this, any signed-in Google user could trigger writes
+// to the store's Sheet/Drive via these endpoints.
+async function requireAdmin(req: any, res: any, next: any) {
+  const token = getRequestToken(req);
+  if (!token) {
+    return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
+  }
+  const authorized = await isAuthorizedAdmin(token);
+  if (!authorized) {
+    return res.status(403).json({ error: "Esta conta Google não tem permissão de administrador." });
+  }
+  next();
+}
+
+// Endpoints públicos sem login (checkout, cupom) só têm essa barreira contra abuso/spam.
+const publicWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas requisições. Tente novamente em alguns minutos." }
+});
+
+// Limite extra nas rotas admin, além do allowlist de e-mail, contra tentativas repetidas.
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas requisições. Tente novamente em alguns minutos." }
+});
 
 // -------------------------------------------------------------
 // ENDPOINTS DA API
@@ -50,7 +84,7 @@ router.get("/api/reviews", async (req, res) => {
 });
 
 // 3. Validar Cupom de Desconto
-router.post("/api/validate-coupon", async (req, res) => {
+router.post("/api/validate-coupon", publicWriteLimiter, async (req, res) => {
   const { code } = req.body;
   if (!code) {
     return res.status(400).json({ error: "Código do cupom é obrigatório" });
@@ -76,12 +110,9 @@ router.post("/api/validate-coupon", async (req, res) => {
 // -------------------------------------------------------------
 
 // Listar arquivos do Drive da pasta
-router.get("/api/admin/drive-files", async (req, res) => {
+router.get("/api/admin/drive-files", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const token = getRequestToken(req);
-    if (!token) {
-      return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
-    }
     const files = await fetchGoogleDriveFiles(token);
     res.json({ success: true, files });
   } catch (error: any) {
@@ -90,12 +121,9 @@ router.get("/api/admin/drive-files", async (req, res) => {
 });
 
 // Renomear arquivos no Google Drive correspondentes à base de produtos
-router.post("/api/admin/rename-files", async (req, res) => {
+router.post("/api/admin/rename-files", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const token = getRequestToken(req);
-    if (!token) {
-      return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
-    }
 
     const driveFiles = await fetchGoogleDriveFiles(token);
     if (!driveFiles || driveFiles.length === 0) {
@@ -169,12 +197,9 @@ router.post("/api/admin/rename-files", async (req, res) => {
 });
 
 // Sincronizar todos os dados com o Google Sheets do Usuário
-router.post("/api/admin/sync-sheets", async (req, res) => {
+router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const token = getRequestToken(req);
-    if (!token) {
-      return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
-    }
 
     // 1. Obter imagens do Drive atualizadas para os produtos
     const driveFiles = await fetchGoogleDriveFiles(token) || [];
@@ -235,7 +260,7 @@ router.post("/api/admin/sync-sheets", async (req, res) => {
 });
 
 // 4. Checkout - Registrar Pedido e Gerar Links de Conversão do WhatsApp
-router.post("/api/checkout", async (req, res) => {
+router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
   const { clientName, phone, email, address, items, total, couponCode, discountApplied } = req.body;
 
   if (!clientName || !phone || !email || !address || !items || !total) {
