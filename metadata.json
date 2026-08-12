@@ -1,0 +1,6 @@
+{
+  "name": "Beerlanda",
+  "description": "E-commerce premium de produtos naturais à base de abelha, com banco de dados integrado ao Google Planilhas em tempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
