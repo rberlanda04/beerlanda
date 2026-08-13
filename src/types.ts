@@ -29,6 +29,9 @@ export interface Order {
   items: string; // Formatted list of items
   total: number;
   paymentStatus: string;
+  paymentMethod?: "whatsapp" | "mercadopago";
+  mpPreferenceId?: string;
+  mpPaymentId?: string;
 }
 
 export interface Review {

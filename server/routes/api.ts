@@ -5,7 +5,8 @@ import { MOCK_COUPONS, MOCK_REVIEWS } from '../data/mock';
 import { randomUUID } from 'crypto';
 import { fetchGoogleDriveFiles, renameDriveFile, cleanString, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify } from '../services/googleService';
 import { uploadImageBuffer } from '../services/storageService';
-import { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer } from '../services/firestoreService';
+import { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer, updateOrderPayment } from '../services/firestoreService';
+import { createPaymentPreference, getPaymentDetails } from '../services/mercadoPagoService';
 
 const router = express.Router();
 
@@ -56,7 +57,8 @@ router.get("/api/config", (req, res) => {
     whatsappPhone: process.env.WHATSAPP_PHONE || "5541998996996",
     contactEmail: process.env.CONTACT_EMAIL || "beerlandaprodutosartesanais@gmail.com",
     googleSheetId: process.env.GOOGLE_SHEET_ID,
-    googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID
+    googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID,
+    mercadoPagoPublicKey: process.env.MERCADOPAGO_PUBLIC_KEY || ""
   });
 });
 
@@ -351,9 +353,9 @@ router.post("/api/admin/products/:id/image", adminLimiter, requireAdmin, async (
   }
 });
 
-// 4. Checkout - Registrar Pedido e Gerar Links de Conversão do WhatsApp
+// 4. Checkout - Registrar Pedido e Gerar Links de Conversão do WhatsApp / Pagamento
 router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
-  const { clientName, phone, email, address, items, total, couponCode, discountApplied } = req.body;
+  const { clientName, phone, email, address, items, total, couponCode, discountApplied, paymentMethod } = req.body;
 
   if (!clientName || !phone || !email || !address || !items || !total) {
     return res.status(400).json({ error: "Todos os campos de checkout são obrigatórios." });
@@ -361,6 +363,7 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
 
   const orderId = `BL-${Math.floor(100000 + Math.random() * 900000)}`;
   const orderDate = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  const method: "whatsapp" | "mercadopago" = paymentMethod === "mercadopago" ? "mercadopago" : "whatsapp";
 
   // Format details for saving
   const formattedItems = items
@@ -376,7 +379,8 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     address,
     items: formattedItems,
     total,
-    paymentStatus: "Pendente (WhatsApp)"
+    paymentStatus: method === "mercadopago" ? "Pendente (Mercado Pago)" : "Pendente (WhatsApp)",
+    paymentMethod: method
   };
 
   // Persistência real do pedido: Firestore (não o disco local, que some a
@@ -388,6 +392,34 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     console.log(`[Firestore] Pedido ${orderId} registrado com sucesso.`);
   } catch (e) {
     console.error("[Firestore] Erro ao gravar pedido:", e);
+  }
+
+  // Se o cliente escolheu pagar com Mercado Pago, gera a preferência de
+  // pagamento e devolve o link do checkout hospedado (cartão + Pix).
+  let paymentUrl: string | undefined;
+  if (method === "mercadopago") {
+    const baseUrl = process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL"
+      ? process.env.APP_URL.replace(/\/$/, "")
+      : `${req.protocol}://${req.get("host")}`;
+
+    const preference = await createPaymentPreference({
+      orderId,
+      items: items.map((item: any) => ({
+        title: item.product.name,
+        quantity: item.quantity,
+        unitPrice: item.product.promoPrice || item.product.price
+      })),
+      payerName: clientName,
+      payerEmail: email,
+      baseUrl
+    });
+
+    if (preference) {
+      paymentUrl = preference.initPoint;
+      await updateOrderPayment({ orderId, paymentStatus: "Pendente (Mercado Pago)", mpPreferenceId: preference.preferenceId });
+    } else {
+      console.error(`[Mercado Pago] Não foi possível gerar o link de pagamento do pedido ${orderId}.`);
+    }
   }
 
   // --- GERAR MENSAGEM DO WHATSAPP FORMATADA (Alta Conversão) ---
@@ -415,8 +447,50 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     orderId,
     whatsappUrl: wppUrl,
     whatsappMessage: wppMessage,
+    paymentUrl,
     total
   });
+});
+
+// Webhook do Mercado Pago: notificação assíncrona de status de pagamento.
+// É a fonte confiável de "foi pago de verdade" — o redirect do navegador
+// sozinho não garante isso (a pessoa pode fechar a aba antes de voltar).
+router.post("/api/webhooks/mercadopago", async (req, res) => {
+  try {
+    const paymentId = req.query["data.id"] || req.body?.data?.id;
+    const type = req.query.type || req.body?.type;
+
+    if (type !== "payment" || !paymentId) {
+      return res.status(200).send("ignored");
+    }
+
+    const payment = await getPaymentDetails(String(paymentId));
+    if (!payment || !payment.external_reference) {
+      return res.status(200).send("no reference");
+    }
+
+    const statusMap: Record<string, string> = {
+      approved: "Pago",
+      pending: "Pendente (Mercado Pago)",
+      in_process: "Pendente (Mercado Pago)",
+      rejected: "Recusado",
+      cancelled: "Cancelado",
+      refunded: "Reembolsado"
+    };
+    const paymentStatus = statusMap[payment.status || ""] || "Pendente (Mercado Pago)";
+
+    await updateOrderPayment({
+      orderId: payment.external_reference,
+      paymentStatus,
+      mpPaymentId: String(paymentId)
+    });
+
+    console.log(`[Mercado Pago] Pedido ${payment.external_reference} atualizado para "${paymentStatus}".`);
+    res.status(200).send("ok");
+  } catch (error) {
+    console.error("[Mercado Pago] Erro ao processar webhook:", error);
+    res.status(200).send("error handled");
+  }
 });
 
 // -------------------------------------------------------------

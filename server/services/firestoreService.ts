@@ -71,4 +71,9 @@ async function saveCustomer(customer: CustomerInfo): Promise<void> {
   );
 }
 
-export { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer };
+async function updateOrderPayment(fields: { orderId: string; paymentStatus: string; mpPreferenceId?: string; mpPaymentId?: string }): Promise<void> {
+  const { orderId, ...rest } = fields;
+  await db.collection("orders").doc(orderId).set(rest, { merge: true });
+}
+
+export { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer, updateOrderPayment };
