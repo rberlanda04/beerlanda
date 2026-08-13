@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+  <defs>
+    <pattern id="honeycomb" width="56" height="100" patternUnits="userSpaceOnUse">
+      <path fill="none" stroke="#D4AF37" stroke-width="1.5" stroke-opacity="0.35"
+        d="M28 0 L56 16 L56 50 L28 66 L0 50 L0 16 Z M28 66 L56 82 L56 100 M28 66 L0 82 L0 100 M28 0 L28 -16" />
+    </pattern>
+    <radialGradient id="badgeGlow" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#FBEFC9" />
+      <stop offset="100%" stop-color="#F3E0A0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="600" height="600" fill="#F9F5F0" />
+  <rect width="600" height="600" fill="url(#honeycomb)" />
+
+  <circle cx="300" cy="300" r="190" fill="url(#badgeGlow)" stroke="#D4AF37" stroke-width="4" />
+
+  <!-- Asas -->
+  <g fill="#FFFFFF" fill-opacity="0.75" stroke="#D4AF37" stroke-width="2.5">
+    <ellipse cx="230" cy="235" rx="58" ry="38" transform="rotate(-24 230 235)" />
+    <ellipse cx="370" cy="235" rx="58" ry="38" transform="rotate(24 370 235)" />
+  </g>
+
+  <!-- Corpo -->
+  <g stroke="#5C4033" stroke-width="6" stroke-linejoin="round">
+    <ellipse cx="300" cy="330" rx="95" ry="115" fill="#F4B93E" />
+    <path d="M215 290 Q300 270 385 290 L385 300 Q300 282 215 300 Z" fill="#5C4033" />
+    <path d="M212 340 Q300 320 388 340 L388 352 Q300 332 212 352 Z" fill="#5C4033" />
+    <path d="M218 392 Q300 374 382 392 L380 404 Q300 386 220 404 Z" fill="#5C4033" />
+  </g>
+
+  <!-- Cabeça -->
+  <circle cx="300" cy="205" r="52" fill="#5C4033" stroke="#5C4033" stroke-width="6" />
+  <circle cx="280" cy="200" r="9" fill="#F9F5F0" />
+  <circle cx="320" cy="200" r="9" fill="#F9F5F0" />
+
+  <!-- Antenas -->
+  <g stroke="#5C4033" stroke-width="6" stroke-linecap="round" fill="none">
+    <path d="M275 165 Q260 130 240 118" />
+    <path d="M325 165 Q340 130 360 118" />
+  </g>
+  <circle cx="240" cy="118" r="7" fill="#D4AF37" />
+  <circle cx="360" cy="118" r="7" fill="#D4AF37" />
+
+  <!-- Ferrão -->
+  <path d="M300 445 L288 470 L312 470 Z" fill="#5C4033" />
+</svg>

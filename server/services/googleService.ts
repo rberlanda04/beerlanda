@@ -1,5 +1,5 @@
-import { Product, Coupon, Review } from '../../src/types';
-import { MOCK_PRODUCTS, MOCK_COUPONS, MOCK_REVIEWS } from '../data/mock';
+import { Product, Review } from '../../src/types';
+import { MOCK_PRODUCTS, MOCK_REVIEWS } from '../data/mock';
 import { hostProductImage } from './storageService';
 
 async function fetchGoogleSheetRows(range: string, token?: string): Promise<any[][] | null> {
@@ -397,7 +397,7 @@ function cleanString(str: string): string {
 
 function findImageForProduct(productName: string, driveFiles: any[]): string {
   if (!driveFiles || driveFiles.length === 0) {
-    return getFallbackUnsplashImage(productName);
+    return getFallbackBeeImage(productName);
   }
 
   const cleanedName = cleanString(productName);
@@ -428,23 +428,14 @@ function findImageForProduct(productName: string, driveFiles: any[]): string {
     }
   }
 
-  return getFallbackUnsplashImage(productName);
+  return getFallbackBeeImage(productName);
 }
 
-function getFallbackUnsplashImage(productName: string): string {
-  const nameLower = productName.toLowerCase();
-  if (nameLower.includes("sabonete")) {
-    return "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600";
-  } else if (nameLower.includes("vela")) {
-    return "https://images.unsplash.com/photo-1603006905003-be475563bc59?auto=format&fit=crop&q=80&w=600";
-  } else if (nameLower.includes("balsamo") || nameLower.includes("bálsamo")) {
-    return "https://images.unsplash.com/photo-1617897903246-719242758050?auto=format&fit=crop&q=80&w=600";
-  } else if (nameLower.includes("abelha") || nameLower.includes("chaveiro")) {
-    return "https://images.unsplash.com/photo-1587049352846-4a222e784d38?auto=format&fit=crop&q=80&w=600";
-  } else if (nameLower.includes("escalda") || nameLower.includes("sais")) {
-    return "https://images.unsplash.com/photo-1515377905703-c4788e51af15?auto=format&fit=crop&q=80&w=600";
-  }
-  return "https://images.unsplash.com/photo-1587049352846-4a222e784d38?auto=format&fit=crop&q=80&w=600";
+// Ilustração de abelha com a identidade da marca, hospedada no mesmo bucket
+// das fotos de produto — usada quando não há foto real disponível, no lugar
+// de fotos de banco de imagens genéricas sem relação com a Beerlanda.
+function getFallbackBeeImage(_productName: string): string {
+  return "https://storage.googleapis.com/beerlanda-product-images/branding/bee-placeholder.svg";
 }
 
 // Lê a planilha real da Beerlanda: Nome | Preço unitário | Composição: | Estoque | ID | Imagem.
@@ -481,7 +472,7 @@ async function getProductsFromSheet(token?: string): Promise<Product[]> {
       if (token) idBackfills.push({ row: i + 1, id });
     }
 
-    const imageUrl = row[5] ? String(row[5]).trim() : getFallbackUnsplashImage(name);
+    const imageUrl = row[5] ? String(row[5]).trim() : getFallbackBeeImage(name);
 
     products.push({
       id,
@@ -536,27 +527,6 @@ async function backfillMissingProductPhotos(token: string): Promise<{ updated: n
   return { updated, total };
 }
 
-async function getCouponsFromSheet(token?: string): Promise<Coupon[]> {
-  const rows = await fetchGoogleSheetRows("Cupons!A1:E50", token);
-  if (!rows) {
-    return MOCK_COUPONS;
-  }
-
-  const raw = mapRowsToObjects<any>(rows);
-  return raw.map((item) => {
-    const code = String(item.codigo || item.code || "").trim().toUpperCase();
-    const typeVal = String(item.tipo || item.type).trim().toLowerCase();
-    const type = typeVal.includes("valor") || typeVal.includes("fixed") || typeVal.includes("fixo") ? "fixed" : "percentage";
-    const value = parseFloat(String(item.valor || item.value).replace(",", ".")) || 0;
-    const activeVal = String(item.ativo).trim().toLowerCase();
-    const active = activeVal === "sim" || activeVal === "yes" || activeVal === "true" || activeVal === "1" || activeVal === "";
-    const limitStr = item.limite_uso || item.limit;
-    const useLimit = limitStr ? parseInt(String(limitStr)) : undefined;
-
-    return { code, type, value, active, useLimit };
-  });
-}
-
 async function getReviewsFromSheet(token?: string): Promise<Review[]> {
   const rows = await fetchGoogleSheetRows("Avaliacoes!A1:E50", token);
   if (!rows) {
@@ -576,4 +546,4 @@ async function getReviewsFromSheet(token?: string): Promise<Review[]> {
   });
 }
 
-export { fetchGoogleSheetRows, createSheetTabIfNotExist, writeGoogleSheetRows, fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify, deriveCategoryFromName, PRODUCT_TAB };
+export { fetchGoogleSheetRows, createSheetTabIfNotExist, writeGoogleSheetRows, appendGoogleSheetRow, fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getReviewsFromSheet, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify, deriveCategoryFromName, PRODUCT_TAB };

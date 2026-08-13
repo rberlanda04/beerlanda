@@ -1,11 +1,18 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import { Order } from '../../src/types';
-import { MOCK_COUPONS, MOCK_REVIEWS } from '../data/mock';
+import { Order, Coupon } from '../../src/types';
+import { MOCK_REVIEWS } from '../data/mock';
 import { randomUUID } from 'crypto';
-import { fetchGoogleDriveFiles, renameDriveFile, cleanString, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify } from '../services/googleService';
+import { fetchGoogleDriveFiles, renameDriveFile, cleanString, getProductsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, appendGoogleSheetRow, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify } from '../services/googleService';
 import { uploadImageBuffer } from '../services/storageService';
-import { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer, updateOrderPayment, saveMessage } from '../services/firestoreService';
+import {
+  syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
+  saveOrder, saveCustomer, updateOrderPayment, getOrdersFromFirestore, getCustomersFromFirestore,
+  getUnsyncedOrders, markOrderSynced, getUnsyncedCustomers, markCustomerSynced,
+  saveMessage, getMessagesFromFirestore, markMessageRead, getUnsyncedMessages, markMessageSynced,
+  getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
+  getDashboardStats
+} from '../services/firestoreService';
 import { createPaymentPreference, getPaymentDetails } from '../services/mercadoPagoService';
 
 const router = express.Router();
@@ -113,8 +120,7 @@ router.post("/api/validate-coupon", publicWriteLimiter, async (req, res) => {
   }
 
   try {
-    const token = getRequestToken(req);
-    const coupons = await getCouponsFromSheet(token);
+    const coupons = await getCouponsFromFirestore();
     const coupon = coupons.find(c => c.code === code.trim().toUpperCase() && c.active);
 
     if (!coupon) {
@@ -221,24 +227,14 @@ router.post("/api/admin/rename-files", adminLimiter, requireAdmin, async (req, r
 
 // Preenche fotos e IDs faltantes na planilha real de produtos (a fonte de
 // dados é a planilha em si, mantida manualmente — este botão não sobrescreve
-// os dados, só completa o que está em branco) e garante que Cupons/Avaliações
-// tenham ao menos os dados padrão para o site funcionar.
+// os dados, só completa o que está em branco), garante que Avaliações tenha
+// ao menos os dados padrão, e atualiza o espelho de produtos no Firestore.
 router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const token = getRequestToken(req);
     if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
 
     const { updated, total } = await backfillMissingProductPhotos(token);
-
-    const couponHeaders = ["codigo", "tipo", "valor", "ativo", "limite_uso"];
-    const couponRows = MOCK_COUPONS.map(c => [
-      c.code,
-      c.type,
-      c.value,
-      c.active ? "Sim" : "Não",
-      c.useLimit || ""
-    ]);
-    const couponSheetData = [couponHeaders, ...couponRows];
 
     const reviewHeaders = ["id", "nome", "estrelas", "comentario", "ativo"];
     const reviewRows = MOCK_REVIEWS.map(r => [
@@ -250,7 +246,6 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
     ]);
     const reviewSheetData = [reviewHeaders, ...reviewRows];
 
-    const cSuccess = await writeGoogleSheetRows("Cupons!A1:E50", couponSheetData, token);
     const rSuccess = await writeGoogleSheetRows("Avaliacoes!A1:E50", reviewSheetData, token);
 
     // Atualiza o espelho no Firestore com o estado mais recente da planilha
@@ -258,10 +253,10 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
     const freshProducts = await getProductsFromSheet(token);
     await syncProductsToFirestore(freshProducts);
 
-    if (cSuccess && rSuccess) {
-      res.json({ success: true, message: `Fotos preenchidas: ${updated} de ${total} produtos. Firestore atualizado. Cupons e Avaliações configurados.` });
+    if (rSuccess) {
+      res.json({ success: true, message: `Fotos preenchidas: ${updated} de ${total} produtos. Firestore atualizado. Avaliações configuradas.` });
     } else {
-      res.status(500).json({ error: "Falha ao gravar as abas de Cupons/Avaliações." });
+      res.status(500).json({ error: "Falha ao gravar a aba de Avaliações." });
     }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -271,6 +266,20 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
 // -------------------------------------------------------------
 // PORTAL ADMINISTRATIVO: CRUD DE PRODUTOS (fonte de dados = Google Sheets)
 // -------------------------------------------------------------
+
+function parseCouponBody(body: any): Coupon | null {
+  const code = String(body.code || "").trim().toUpperCase();
+  const type = body.type === "fixed" ? "fixed" : "percentage";
+  const value = Number(body.value);
+  if (!code || !value || value <= 0) return null;
+  return {
+    code,
+    type,
+    value,
+    active: body.active !== false,
+    useLimit: body.useLimit !== undefined && body.useLimit !== "" ? Number(body.useLimit) : undefined
+  };
+}
 
 function parseProductBody(body: any) {
   const name = String(body.name || "").trim();
@@ -362,6 +371,160 @@ router.post("/api/admin/products/:id/image", adminLimiter, requireAdmin, async (
     const ext = String(contentType).split("/")[1]?.split("+")[0] || "jpg";
     const imageUrl = await uploadImageBuffer(buffer, `products/${req.params.id}-${Date.now()}.${ext}`, contentType);
     res.json({ success: true, imageUrl });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// -------------------------------------------------------------
+// PORTAL ADMINISTRATIVO: DASHBOARD, PEDIDOS, CLIENTES, MENSAGENS, CUPONS
+// -------------------------------------------------------------
+
+router.get("/api/admin/dashboard", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const stats = await getDashboardStats();
+    res.json(stats);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/api/admin/orders", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const orders = await getOrdersFromFirestore();
+    res.json(orders);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/api/admin/customers", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const customers = await getCustomersFromFirestore();
+    res.json(customers);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/api/admin/messages", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const messages = await getMessagesFromFirestore();
+    res.json(messages);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/api/admin/messages/:id/read", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    await markMessageRead(req.params.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/api/admin/coupons", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const coupons = await getCouponsFromFirestore();
+    res.json(coupons);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/api/admin/coupons", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const coupon = parseCouponBody(req.body);
+    if (!coupon) return res.status(400).json({ error: "Código, tipo e valor são obrigatórios." });
+    await setCouponInFirestore(coupon);
+    res.json({ success: true, coupon });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/api/admin/coupons/:code", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const coupon = parseCouponBody({ ...req.body, code: req.params.code });
+    if (!coupon) return res.status(400).json({ error: "Código, tipo e valor são obrigatórios." });
+    await setCouponInFirestore(coupon);
+    res.json({ success: true, coupon });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/api/admin/coupons/:code", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    await deleteCouponFromFirestore(req.params.code);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Replica pedidos/clientes/mensagens novos do Firestore para as abas que já
+// existiam na planilha real da loja (vendas/clientes/mensagens) — só o que
+// ainda não foi sincronizado, sem tocar nas linhas históricas já existentes.
+router.post("/api/admin/sync-firestore-to-sheet", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const token = getRequestToken(req);
+    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
+
+    const [unsyncedOrders, unsyncedCustomers, unsyncedMessages] = await Promise.all([
+      getUnsyncedOrders(),
+      getUnsyncedCustomers(),
+      getUnsyncedMessages()
+    ]);
+
+    let ordersSynced = 0;
+    for (const order of unsyncedOrders) {
+      const ok = await appendGoogleSheetRow("vendas", [
+        order.date,
+        order.clientName,
+        String(order.total).replace(".", ","),
+        order.items,
+        order.paymentStatus
+      ], token);
+      if (ok) {
+        await markOrderSynced(order.id);
+        ordersSynced++;
+      }
+    }
+
+    let customersSynced = 0;
+    for (const { id, customer } of unsyncedCustomers) {
+      const ok = await appendGoogleSheetRow("clientes", [
+        customer.lastOrderAt ? new Date(customer.lastOrderAt).toLocaleString("pt-BR") : "",
+        customer.name,
+        customer.email
+      ], token);
+      if (ok) {
+        await markCustomerSynced(id);
+        customersSynced++;
+      }
+    }
+
+    let messagesSynced = 0;
+    for (const msg of unsyncedMessages) {
+      const ok = await appendGoogleSheetRow("mensagens", [
+        msg.createdAt ? new Date(msg.createdAt).toLocaleString("pt-BR") : "",
+        msg.name,
+        msg.email,
+        msg.message
+      ], token);
+      if (ok) {
+        await markMessageSynced(msg.id);
+        messagesSynced++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Sincronizado: ${ordersSynced} pedido(s), ${customersSynced} cliente(s), ${messagesSynced} mensagem(ns).`
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

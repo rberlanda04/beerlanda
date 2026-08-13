@@ -32,6 +32,35 @@ export interface Order {
   paymentMethod?: "mercadopago";
   mpPreferenceId?: string;
   mpPaymentId?: string;
+  createdAt?: string;
+}
+
+export interface Customer {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  lastOrderAt?: string;
+}
+
+export interface ContactMessage {
+  id: string;
+  name: string;
+  email: string;
+  message: string;
+  read: boolean;
+  createdAt?: string;
+}
+
+export interface DashboardStats {
+  totalOrders: number;
+  totalRevenue: number;
+  approvedCount: number;
+  pendingCount: number;
+  totalCustomers: number;
+  totalProducts: number;
+  unreadMessages: number;
+  recentOrders: Order[];
 }
 
 export interface Review {

@@ -1,4 +1,4 @@
-import { Product, Coupon, Review } from '../../src/types';
+import { Product, Review } from '../../src/types';
 
 const MOCK_PRODUCTS: Product[] = [
   {
@@ -529,10 +529,4 @@ const MOCK_REVIEWS: Review[] = [
   }
 ];
 
-const MOCK_COUPONS: Coupon[] = [
-  { code: "MEL10", type: "percentage", value: 10, active: true },
-  { code: "BEMVINDO15", type: "fixed", value: 15, active: true },
-  { code: "DOURADO20", type: "percentage", value: 20, active: true }
-];
-
-export { MOCK_PRODUCTS, MOCK_REVIEWS, MOCK_COUPONS };
+export { MOCK_PRODUCTS, MOCK_REVIEWS };

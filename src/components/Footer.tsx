@@ -146,6 +146,8 @@ export default function Footer({ appConfig }: FooterProps) {
           </p>
         </div>
       </div>
+
+      {isContactOpen && <ContactForm onClose={() => setIsContactOpen(false)} />}
     </footer>
   );
 }
