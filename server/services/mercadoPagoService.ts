@@ -56,7 +56,10 @@ async function createPaymentPreference(params: CreatePreferenceParams): Promise<
       }
     });
 
-    if (!result.init_point || !result.id) return null;
+    if (!result.init_point || !result.id) {
+      console.warn("[Mercado Pago] Preferência criada sem init_point/id:", JSON.stringify(result));
+      return null;
+    }
     return { initPoint: result.init_point, preferenceId: result.id };
   } catch (error) {
     console.error("[Mercado Pago] Falha ao criar preferência de pagamento:", error);

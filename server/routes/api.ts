@@ -5,7 +5,7 @@ import { MOCK_COUPONS, MOCK_REVIEWS } from '../data/mock';
 import { randomUUID } from 'crypto';
 import { fetchGoogleDriveFiles, renameDriveFile, cleanString, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify } from '../services/googleService';
 import { uploadImageBuffer } from '../services/storageService';
-import { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer, updateOrderPayment } from '../services/firestoreService';
+import { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer, updateOrderPayment, saveMessage } from '../services/firestoreService';
 import { createPaymentPreference, getPaymentDetails } from '../services/mercadoPagoService';
 
 const router = express.Router();
@@ -54,12 +54,26 @@ const adminLimiter = rateLimit({
 // 0. Configurações Globais
 router.get("/api/config", (req, res) => {
   res.json({
-    whatsappPhone: process.env.WHATSAPP_PHONE || "5541998996996",
     contactEmail: process.env.CONTACT_EMAIL || "beerlandaprodutosartesanais@gmail.com",
     googleSheetId: process.env.GOOGLE_SHEET_ID,
     googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID,
     mercadoPagoPublicKey: process.env.MERCADOPAGO_PUBLIC_KEY || ""
   });
+});
+
+// Formulário de contato: perguntas gerais chegam aqui em vez de WhatsApp.
+router.post("/api/contact", publicWriteLimiter, async (req, res) => {
+  const { name, email, message } = req.body;
+  if (!name || !email || !message) {
+    return res.status(400).json({ error: "Nome, e-mail e mensagem são obrigatórios." });
+  }
+  try {
+    await saveMessage({ name, email, message });
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[Firestore] Erro ao gravar mensagem de contato:", error);
+    res.status(500).json({ error: "Não foi possível enviar sua mensagem agora. Tente novamente." });
+  }
 });
 
 // 1. Listar Produtos Ativos
@@ -353,9 +367,9 @@ router.post("/api/admin/products/:id/image", adminLimiter, requireAdmin, async (
   }
 });
 
-// 4. Checkout - Registrar Pedido e Gerar Links de Conversão do WhatsApp / Pagamento
+// 4. Checkout - Registra o Pedido e Gera o Link de Pagamento (Mercado Pago)
 router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
-  const { clientName, phone, email, address, items, total, couponCode, discountApplied, paymentMethod } = req.body;
+  const { clientName, phone, email, address, items, total } = req.body;
 
   if (!clientName || !phone || !email || !address || !items || !total) {
     return res.status(400).json({ error: "Todos os campos de checkout são obrigatórios." });
@@ -363,9 +377,7 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
 
   const orderId = `BL-${Math.floor(100000 + Math.random() * 900000)}`;
   const orderDate = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
-  const method: "whatsapp" | "mercadopago" = paymentMethod === "mercadopago" ? "mercadopago" : "whatsapp";
 
-  // Format details for saving
   const formattedItems = items
     .map((item: any) => `${item.product.name} (x${item.quantity}) - R$ ${(item.product.promoPrice || item.product.price).toFixed(2)}`)
     .join(", ");
@@ -379,8 +391,8 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     address,
     items: formattedItems,
     total,
-    paymentStatus: method === "mercadopago" ? "Pendente (Mercado Pago)" : "Pendente (WhatsApp)",
-    paymentMethod: method
+    paymentStatus: "Pendente (Mercado Pago)",
+    paymentMethod: "mercadopago"
   };
 
   // Persistência real do pedido: Firestore (não o disco local, que some a
@@ -394,60 +406,33 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     console.error("[Firestore] Erro ao gravar pedido:", e);
   }
 
-  // Se o cliente escolheu pagar com Mercado Pago, gera a preferência de
-  // pagamento e devolve o link do checkout hospedado (cartão + Pix).
-  let paymentUrl: string | undefined;
-  if (method === "mercadopago") {
-    const baseUrl = process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL"
-      ? process.env.APP_URL.replace(/\/$/, "")
-      : `${req.protocol}://${req.get("host")}`;
+  const baseUrl = process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL"
+    ? process.env.APP_URL.replace(/\/$/, "")
+    : `${req.protocol}://${req.get("host")}`;
 
-    const preference = await createPaymentPreference({
-      orderId,
-      items: items.map((item: any) => ({
-        title: item.product.name,
-        quantity: item.quantity,
-        unitPrice: item.product.promoPrice || item.product.price
-      })),
-      payerName: clientName,
-      payerEmail: email,
-      baseUrl
-    });
+  const preference = await createPaymentPreference({
+    orderId,
+    items: items.map((item: any) => ({
+      title: item.product.name,
+      quantity: item.quantity,
+      unitPrice: item.product.promoPrice || item.product.price
+    })),
+    payerName: clientName,
+    payerEmail: email,
+    baseUrl
+  });
 
-    if (preference) {
-      paymentUrl = preference.initPoint;
-      await updateOrderPayment({ orderId, paymentStatus: "Pendente (Mercado Pago)", mpPreferenceId: preference.preferenceId });
-    } else {
-      console.error(`[Mercado Pago] Não foi possível gerar o link de pagamento do pedido ${orderId}.`);
-    }
+  if (!preference) {
+    console.error(`[Mercado Pago] Não foi possível gerar o link de pagamento do pedido ${orderId}.`);
+    return res.status(502).json({ error: "Não foi possível abrir o pagamento agora. Tente novamente em instantes." });
   }
 
-  // --- GERAR MENSAGEM DO WHATSAPP FORMATADA (Alta Conversão) ---
-  const lineSeparator = "----------------------------------------";
-  const wppMessage = `🍯 *NOVO PEDIDO BEERLANDA - #${orderId}* 🍯\n` +
-    `📅 Data: ${orderDate}\n\n` +
-    `👤 *Cliente:* ${clientName}\n` +
-    `📞 WhatsApp: ${phone}\n` +
-    `📧 E-mail: ${email}\n` +
-    `📍 *Endereço de Entrega:* ${address}\n\n` +
-    `${lineSeparator}\n` +
-    `🛒 *PRODUTOS ADQUIRIDOS:*\n` +
-    items.map((item: any) => `• ${item.product.name} x${item.quantity} (R$ ${(item.product.promoPrice || item.product.price).toFixed(2)} un)`).join("\n") + `\n\n` +
-    (couponCode ? `🏷️ *Cupom Aplicado:* ${couponCode} (-R$ ${discountApplied.toFixed(2)})\n` : "") +
-    `💰 *Valor Total do Pedido:* R$ ${total.toFixed(2)}\n` +
-    `${lineSeparator}\n` +
-    `Olá Beerlanda! Acabei de finalizar meu pedido no site. Como posso realizar o pagamento via Pix para agilizar o envio? 🐝✨`;
-
-  const rawWppPhone = process.env.WHATSAPP_PHONE || "5541998996996";
-  const wppPhone = rawWppPhone.replace(/\D/g, "");
-  const wppUrl = `https://api.whatsapp.com/send?phone=${wppPhone}&text=${encodeURIComponent(wppMessage)}`;
+  await updateOrderPayment({ orderId, paymentStatus: "Pendente (Mercado Pago)", mpPreferenceId: preference.preferenceId });
 
   res.json({
     success: true,
     orderId,
-    whatsappUrl: wppUrl,
-    whatsappMessage: wppMessage,
-    paymentUrl,
+    paymentUrl: preference.initPoint,
     total
   });
 });

@@ -9,6 +9,7 @@ import HomeView from "./components/HomeView";
 import ProductView from "./components/ProductView";
 import CartDrawer from "./components/CartDrawer";
 import CheckoutView from "./components/CheckoutView";
+import PaymentStatusView from "./components/PaymentStatusView";
 import AdminPortal from "./components/AdminPortal";
 
 import { motion, AnimatePresence } from "motion/react";
@@ -20,12 +21,10 @@ export default function App() {
 
   // --- ESTADO GLOBAL ---
   const [appConfig, setAppConfig] = useState<{
-    whatsappPhone: string;
     contactEmail: string;
     googleSheetId: string;
     googleDriveFolderId: string;
   }>({
-    whatsappPhone: "5541998996996",
     contactEmail: "beerlandaprodutosartesanais@gmail.com",
     googleSheetId: "",
     googleDriveFolderId: ""
@@ -35,7 +34,7 @@ export default function App() {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [currentView, setCurrentView] = useState<"home" | "product" | "checkout">("home");
+  const [currentView, setCurrentView] = useState<"home" | "product" | "checkout" | "payment-success" | "payment-failure" | "payment-pending">("home");
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -132,6 +131,19 @@ export default function App() {
           setCurrentView("checkout");
           setSelectedProduct(null);
         }
+      } else if (hash === "#pagamento/sucesso") {
+        setCurrentView("payment-success");
+        setSelectedProduct(null);
+        setCartItems([]);
+        setAppliedCoupon(null);
+      } else if (hash === "#pagamento/erro") {
+        setCurrentView("payment-failure");
+        setSelectedProduct(null);
+      } else if (hash === "#pagamento/pendente") {
+        setCurrentView("payment-pending");
+        setSelectedProduct(null);
+        setCartItems([]);
+        setAppliedCoupon(null);
       } else {
         // Padrão: Home
         setCurrentView("home");
@@ -203,12 +215,6 @@ export default function App() {
     setCartItems((prevItems) => prevItems.filter((item) => item.product.id !== productId));
   };
 
-  const handleClearCart = () => {
-    setCartItems([]);
-    setAppliedCoupon(null);
-    navigateToHome();
-  };
-
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
@@ -271,7 +277,21 @@ export default function App() {
                 cartItems={cartItems}
                 appliedCoupon={appliedCoupon}
                 onBackToCart={() => setIsCartOpen(true)}
-                onClearCart={handleClearCart}
+              />
+            </motion.div>
+          )}
+
+          {(currentView === "payment-success" || currentView === "payment-failure" || currentView === "payment-pending") && (
+            <motion.div
+              key="payment-status"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.25 }}
+            >
+              <PaymentStatusView
+                status={currentView === "payment-success" ? "success" : currentView === "payment-failure" ? "failure" : "pending"}
+                onBackToHome={navigateToHome}
               />
             </motion.div>
           )}

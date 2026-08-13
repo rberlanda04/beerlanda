@@ -13,7 +13,7 @@ export default function Header({ cartCount, onOpenCart, currentView, onNavigateH
   return (
     <header className="sticky top-0 z-40 w-full border-b border-natural-border bg-white/75 backdrop-blur-md">
       <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        
+
         {/* Lado Esquerdo - Navegação / Logo */}
         <div className="flex items-center gap-4">
           {currentView !== "home" && (
@@ -47,7 +47,7 @@ export default function Header({ cartCount, onOpenCart, currentView, onNavigateH
         <div className="flex items-center gap-4">
           <span className="hidden items-center gap-1.5 rounded-full bg-natural-organic/10 px-3 py-1 text-xs font-semibold text-natural-organic md:flex">
             <Sparkles className="h-3 w-3" />
-            100% Puro & Sustentável
+            Natural & Sustentável
           </span>
 
           {/* Botão de Carrinho com Badge Animada */}

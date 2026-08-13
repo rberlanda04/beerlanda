@@ -1,11 +1,12 @@
-import { ShieldCheck, Truck, RefreshCw, Heart, Leaf, Rabbit, Instagram, Mail, Clock, Droplet, Flame, Waves, Package, Zap } from "lucide-react";
+import { useState } from "react";
+import { ShieldCheck, Truck, RefreshCw, Heart, Leaf, Rabbit, Instagram, Mail, MessageSquare, Clock, Droplet, Flame, Waves, Package, Zap } from "lucide-react";
 import logoImg from "../assets/images/logo.png";
+import ContactForm from "./ContactForm";
 
 const INSTAGRAM_HANDLE = "beerlandaprodutosartesanais";
 
 interface FooterProps {
   appConfig?: {
-    whatsappPhone: string;
     contactEmail: string;
     googleSheetId: string;
     googleDriveFolderId: string;
@@ -15,6 +16,7 @@ interface FooterProps {
 export default function Footer({ appConfig }: FooterProps) {
   const currentYear = new Date().getFullYear();
   const email = appConfig?.contactEmail || "beerlandaprodutosartesanais@gmail.com";
+  const [isContactOpen, setIsContactOpen] = useState(false);
 
   return (
     <footer className="mt-16 border-t border-brand-200/50 bg-brand-100/50 pt-12 pb-8 text-charcoal-900">
@@ -110,6 +112,14 @@ export default function Footer({ appConfig }: FooterProps) {
               <li className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />Seg a Sex: 08:00h às 18:00h</li>
               <li className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />Sábados: 09:00h às 13:00h</li>
             </ul>
+            <button
+              onClick={() => setIsContactOpen(true)}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-200/30 px-3 py-1.5 text-[11px] font-bold text-brand-800 hover:bg-brand-200/50 transition-colors cursor-pointer"
+              id="footer-open-contact-btn"
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Fale com a gente
+            </button>
           </div>
 
           {/* Coluna Área da Equipe */}

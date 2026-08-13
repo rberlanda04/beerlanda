@@ -1,14 +1,12 @@
 import React, { useState } from "react";
 import { CartItem, Coupon } from "../types";
 import { formatCurrency } from "../utils";
-import { Sparkles, MessageCircle, ArrowLeft, CheckCircle2, Copy, AlertCircle, ShoppingBag, Truck } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { ArrowLeft, AlertCircle, ShoppingBag, Truck, CreditCard, ShieldCheck } from "lucide-react";
 
 interface CheckoutViewProps {
   cartItems: CartItem[];
   appliedCoupon: Coupon | null;
   onBackToCart: () => void;
-  onClearCart: () => void;
 }
 
 function maskPhone(value: string): string {
@@ -24,7 +22,7 @@ function maskCep(value: string): string {
   return digits.replace(/^(\d{5})(\d*)/, "$1-$2");
 }
 
-export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, onClearCart }: CheckoutViewProps) {
+export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }: CheckoutViewProps) {
   // Estado do formulário
   const [formData, setFormData] = useState({
     name: "",
@@ -40,16 +38,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  
-  // Estado de Sucesso
-  const [successOrder, setSuccessOrder] = useState<{
-    orderId: string;
-    whatsappUrl: string;
-    whatsappMessage: string;
-    total: number;
-  } | null>(null);
-
-  const [copiedText, setCopiedText] = useState<boolean>(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   // Calcular valores
   const subtotal = cartItems.reduce((acc, item) => {
@@ -73,9 +62,9 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
     const errors: Record<string, string> = {};
     if (!formData.name.trim()) errors.name = "Nome completo é obrigatório";
     if (!formData.phone.trim()) {
-      errors.phone = "Número do WhatsApp é obrigatório";
+      errors.phone = "Telefone é obrigatório";
     } else if (formData.phone.replace(/\D/g, "").length < 10) {
-      errors.phone = "Por favor, digite um WhatsApp válido com DDD";
+      errors.phone = "Por favor, digite um telefone válido com DDD";
     }
     if (!formData.email.trim()) {
       errors.email = "E-mail é obrigatório";
@@ -92,12 +81,13 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
     return Object.keys(errors).length === 0;
   };
 
-  // Submeter Pedido
+  // Submeter Pedido — sempre segue para o checkout do Mercado Pago (cartão ou Pix)
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
     setIsSubmitting(true);
+    setPaymentError(null);
 
     const fullAddress = `${formData.street}, Nº ${formData.number}${formData.complement ? ` - ${formData.complement}` : ""}, Bairro: ${formData.neighborhood}, CEP: ${formData.zipCode}, Cidade/Estado: ${formData.cityState}`;
 
@@ -108,8 +98,6 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
       address: fullAddress,
       items: cartItems,
       total,
-      couponCode: appliedCoupon?.code || null,
-      discountApplied: discountAmount
     };
 
     try {
@@ -121,42 +109,23 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
 
       const data = await response.json();
 
-      if (response.ok && data.success) {
-        setSuccessOrder({
-          orderId: data.orderId,
-          whatsappUrl: data.whatsappUrl,
-          whatsappMessage: data.whatsappMessage,
-          total: data.total
-        });
-      } else {
-        alert(data.error || "Houve uma falha ao processar o checkout. Tente novamente.");
+      if (!response.ok || !data.success || !data.paymentUrl) {
+        setPaymentError(data.error || "Não foi possível abrir o pagamento agora. Tente novamente em instantes.");
+        setIsSubmitting(false);
+        return;
       }
+
+      window.location.href = data.paymentUrl;
     } catch (err) {
       console.error("Erro no checkout:", err);
-      alert("Erro de conexão com o servidor. Verifique e tente novamente.");
-    } finally {
+      setPaymentError("Erro de conexão com o servidor. Verifique e tente novamente.");
       setIsSubmitting(false);
-    }
-  };
-
-  const handleCopyMessage = () => {
-    if (successOrder) {
-      navigator.clipboard.writeText(successOrder.whatsappMessage);
-      setCopiedText(true);
-      setTimeout(() => setCopiedText(false), 2000);
-    }
-  };
-
-  const handleFinishAndRedirect = () => {
-    if (successOrder) {
-      window.open(successOrder.whatsappUrl, "_blank", "noopener,noreferrer");
-      onClearCart();
     }
   };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-4 md:py-8">
-      
+
       {/* Botão de retorno rápido */}
       <button
         onClick={onBackToCart}
@@ -168,7 +137,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
       </button>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        
+
         {/* Lado Esquerdo - Formulário de Entrega & Faturamento */}
         <div className="lg:col-span-7 bg-white rounded-2xl border border-natural-border p-6 sm:p-8 shadow-xs">
           <h2 className="font-display text-2xl font-bold text-natural-darkbrown border-b border-natural-border pb-4 flex items-center gap-2">
@@ -177,7 +146,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
           </h2>
 
           <form onSubmit={handleSubmitOrder} className="mt-6 space-y-4">
-            
+
             {/* Campo Nome */}
             <div>
               <label htmlFor="name" className="block text-xs font-bold text-natural-darkbrown uppercase tracking-wider mb-1">
@@ -201,11 +170,11 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
               )}
             </div>
 
-            {/* Linha WhatsApp e Email */}
+            {/* Linha Telefone e Email */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="phone" className="block text-xs font-bold text-natural-darkbrown uppercase tracking-wider mb-1">
-                  WhatsApp (com DDD)
+                  Telefone (com DDD)
                 </label>
                 <input
                   type="tel"
@@ -416,7 +385,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
                 <span>Subtotal dos Produtos</span>
                 <span className="font-mono">{formatCurrency(subtotal)}</span>
               </div>
-              
+
               {appliedCoupon && (
                 <div className="flex justify-between text-xs text-natural-organic font-bold">
                   <span>Desconto aplicado ({appliedCoupon.code})</span>
@@ -438,107 +407,52 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, o
               </div>
             </div>
 
+            {/* Aviso de pagamento */}
+            <div className="mt-6 flex items-center gap-3 rounded-xl border border-natural-border bg-white p-3.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-natural-gold/10 text-natural-gold">
+                <CreditCard className="h-4.5 w-4.5" />
+              </div>
+              <div className="flex-1">
+                <span className="block text-xs font-bold text-natural-darkbrown">Cartão ou Pix</span>
+                <span className="block text-[10px] text-natural-text/60">Pagamento imediato e seguro via Mercado Pago</span>
+              </div>
+            </div>
+
+            {paymentError && (
+              <p className="mt-3 text-[11px] text-rose-600 font-medium flex items-center gap-1.5 bg-rose-50 border border-rose-200 rounded-lg p-2.5">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {paymentError}
+              </p>
+            )}
+
             {/* Botão de Fechamento de Alta Conversão */}
             <button
               onClick={handleSubmitOrder}
               disabled={isSubmitting}
-              className="mt-6 w-full rounded-xl bg-natural-gold py-4 text-center text-sm font-bold text-white shadow-md hover:bg-natural-gold/90 hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+              className="mt-4 w-full rounded-xl bg-natural-gold py-4 text-center text-sm font-bold text-white shadow-md hover:bg-natural-gold/90 hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
               id="confirm-checkout-btn"
             >
               {isSubmitting ? (
                 <>
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  Gravando pedido...
+                  Abrindo pagamento...
                 </>
               ) : (
                 <>
-                  <MessageCircle className="h-5 w-5 fill-white text-natural-gold" />
-                  Finalizar Pedido no WhatsApp
+                  <CreditCard className="h-5 w-5" />
+                  Pagar com Cartão ou Pix
                 </>
               )}
             </button>
-            
-            <p className="mt-3 text-[10px] text-center text-natural-text/50 leading-relaxed">
-              Ao clicar no botão, seu pedido será registrado na planilha do Google e você será redirecionado para o WhatsApp para receber os dados do Pix e finalizar sua compra.
+
+            <p className="mt-3 flex items-center justify-center gap-1.5 text-[10px] text-center text-natural-text/50 leading-relaxed">
+              <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-natural-organic" />
+              Seu pedido é registrado e você será levado para o ambiente seguro do Mercado Pago para concluir o pagamento.
             </p>
           </div>
         </div>
 
       </div>
-
-      {/* -------------------------------------------------------------
-          MODAL DE SUCESSO DO PEDIDO (Gera o link final do Whatsapp)
-         ------------------------------------------------------------- */}
-      <AnimatePresence>
-        {successOrder && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.6 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md"
-            />
-
-            {/* Modal */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 mx-auto max-w-lg rounded-2xl bg-white p-6 md:p-8 shadow-2xl border border-natural-border text-center"
-              id="success-checkout-modal"
-            >
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                <CheckCircle2 className="h-8 w-8 fill-emerald-50" />
-              </div>
-
-              <h3 className="mt-4 font-display text-2xl font-bold text-natural-darkbrown">
-                Pedido Gerado com Sucesso!
-              </h3>
-              
-              <p className="mt-2 text-xs text-natural-text/70">
-                Seu pedido <strong className="font-mono text-natural-gold bg-natural-gold/10 px-1.5 py-0.5 rounded">#{successOrder.orderId}</strong> foi salvo em tempo real no nosso banco de dados.
-              </p>
-
-              {/* Mensagem Formata para Envio */}
-              <div className="mt-6 rounded-2xl border border-natural-border bg-natural-card/50 p-4 text-left">
-                <div className="flex items-center justify-between border-b border-natural-border pb-2 mb-2">
-                  <span className="text-[10px] font-bold text-natural-darkbrown uppercase tracking-wider">
-                    Mensagem que será enviada:
-                  </span>
-                  <button
-                    onClick={handleCopyMessage}
-                    className="inline-flex items-center gap-1 text-[10px] font-bold text-natural-gold hover:underline cursor-pointer"
-                  >
-                    <Copy className="h-3 w-3" />
-                    {copiedText ? "Copiado!" : "Copiar Texto"}
-                  </button>
-                </div>
-                <div className="max-h-[140px] overflow-y-auto text-[11px] text-natural-text/80 font-mono whitespace-pre-line leading-relaxed">
-                  {successOrder.whatsappMessage}
-                </div>
-              </div>
-
-              {/* Ação Principal - Botão WhatsApp */}
-              <div className="mt-6 space-y-3">
-                <button
-                  onClick={handleFinishAndRedirect}
-                  className="w-full rounded-xl bg-emerald-600 py-3.5 text-center text-sm font-bold text-white shadow-md hover:bg-emerald-700 hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
-                  id="whatsapp-redirect-btn"
-                >
-                  <MessageCircle className="h-5 w-5 fill-white text-emerald-600" />
-                  Ir para o WhatsApp & Pagar via Pix
-                </button>
-
-                <p className="text-[10px] text-natural-text/50">
-                  Caso o aplicativo não abra automaticamente, copie o texto acima e envie para nosso suporte.
-                </p>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
     </div>
   );
 }

@@ -76,4 +76,15 @@ async function updateOrderPayment(fields: { orderId: string; paymentStatus: stri
   await db.collection("orders").doc(orderId).set(rest, { merge: true });
 }
 
-export { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer, updateOrderPayment };
+interface ContactMessage {
+  name: string;
+  email: string;
+  message: string;
+}
+
+// Perguntas gerais dos clientes (substitui o contato via WhatsApp).
+async function saveMessage(msg: ContactMessage): Promise<void> {
+  await db.collection("messages").add({ ...msg, createdAt: new Date().toISOString(), read: false });
+}
+
+export { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer, updateOrderPayment, saveMessage };

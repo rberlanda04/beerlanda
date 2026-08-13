@@ -29,7 +29,7 @@ export interface Order {
   items: string; // Formatted list of items
   total: number;
   paymentStatus: string;
-  paymentMethod?: "whatsapp" | "mercadopago";
+  paymentMethod?: "mercadopago";
   mpPreferenceId?: string;
   mpPaymentId?: string;
 }
