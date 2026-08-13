@@ -1,4 +1,4 @@
-import { Product, Coupon, Order, Review } from '../../src/types';
+import { Product, Coupon, Review } from '../../src/types';
 
 const MOCK_PRODUCTS: Product[] = [
   {
@@ -535,6 +535,4 @@ const MOCK_COUPONS: Coupon[] = [
   { code: "DOURADO20", type: "percentage", value: 20, active: true }
 ];
 
-// In-memory order tracking to fallback on when sheet is not writable
-let IN_MEMORY_ORDERS: Order[] = [];
-export { MOCK_PRODUCTS, MOCK_REVIEWS, MOCK_COUPONS, IN_MEMORY_ORDERS };
+export { MOCK_PRODUCTS, MOCK_REVIEWS, MOCK_COUPONS };

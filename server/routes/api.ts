@@ -1,12 +1,11 @@
 import express from 'express';
-import path from 'path';
-import fs from 'fs';
 import rateLimit from 'express-rate-limit';
 import { Order } from '../../src/types';
-import { MOCK_COUPONS, MOCK_REVIEWS, IN_MEMORY_ORDERS } from '../data/mock';
+import { MOCK_COUPONS, MOCK_REVIEWS } from '../data/mock';
 import { randomUUID } from 'crypto';
 import { fetchGoogleDriveFiles, renameDriveFile, cleanString, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify } from '../services/googleService';
 import { uploadImageBuffer } from '../services/storageService';
+import { syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore, saveOrder, saveCustomer } from '../services/firestoreService';
 
 const router = express.Router();
 
@@ -62,10 +61,15 @@ router.get("/api/config", (req, res) => {
 });
 
 // 1. Listar Produtos Ativos
+// Lê do espelho no Firestore (rápido, sem bater na API do Sheets a cada
+// visita); se ainda não houver espelho (primeira execução), cai pra planilha.
 router.get("/api/products", async (req, res) => {
   try {
-    const token = getRequestToken(req);
-    const products = await getProductsFromSheet(token);
+    let products = await getProductsFromFirestore();
+    if (!products) {
+      const token = getRequestToken(req);
+      products = await getProductsFromSheet(token);
+    }
     const activeProducts = products.filter(p => p.active);
     res.json(activeProducts);
   } catch (error) {
@@ -233,8 +237,13 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
     const cSuccess = await writeGoogleSheetRows("Cupons!A1:E50", couponSheetData, token);
     const rSuccess = await writeGoogleSheetRows("Avaliacoes!A1:E50", reviewSheetData, token);
 
+    // Atualiza o espelho no Firestore com o estado mais recente da planilha
+    // (já com as fotos/IDs preenchidos), pra loja carregar rápido.
+    const freshProducts = await getProductsFromSheet(token);
+    await syncProductsToFirestore(freshProducts);
+
     if (cSuccess && rSuccess) {
-      res.json({ success: true, message: `Fotos preenchidas: ${updated} de ${total} produtos. Cupons e Avaliações configurados.` });
+      res.json({ success: true, message: `Fotos preenchidas: ${updated} de ${total} produtos. Firestore atualizado. Cupons e Avaliações configurados.` });
     } else {
       res.status(500).json({ error: "Falha ao gravar as abas de Cupons/Avaliações." });
     }
@@ -287,6 +296,7 @@ router.post("/api/admin/products", adminLimiter, requireAdmin, async (req, res) 
     const product = { id, ...parsed };
     const ok = await upsertProductRow(product, token);
     if (!ok) return res.status(500).json({ error: "Falha ao gravar o produto na planilha." });
+    await setProductInFirestore(product);
     res.json({ success: true, product });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -304,6 +314,7 @@ router.put("/api/admin/products/:id", adminLimiter, requireAdmin, async (req, re
     const product = { id: req.params.id, ...parsed };
     const ok = await upsertProductRow(product, token);
     if (!ok) return res.status(500).json({ error: "Falha ao atualizar o produto na planilha." });
+    await setProductInFirestore(product);
     res.json({ success: true, product });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -317,6 +328,7 @@ router.delete("/api/admin/products/:id", adminLimiter, requireAdmin, async (req,
 
     const ok = await deleteProductRow(req.params.id, token);
     if (!ok) return res.status(404).json({ error: "Produto não encontrado na planilha." });
+    await deleteProductFromFirestore(req.params.id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -367,32 +379,15 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     paymentStatus: "Pendente (WhatsApp)"
   };
 
-  // Add to local logs
-  IN_MEMORY_ORDERS.push(newOrder);
-
-  // --- GOOGLE SHEETS APPEND LOGIC ---
-  // Se o cliente configurou o Google Service Account, poderíamos append de forma segura aqui.
-  // Como o Sheets API com Key simples só permite leitura, documentamos o código de escrita via Service Account
-  // e salvamos em um arquivo JSON local simulando o banco de dados persistente.
+  // Persistência real do pedido: Firestore (não o disco local, que some a
+  // cada reinício/nova instância do Cloud Run — pedidos ficavam se perdendo
+  // silenciosamente em produção antes desta mudança).
   try {
-    const ordersDir = path.join(process.cwd(), "data");
-    if (!fs.existsSync(ordersDir)) {
-      fs.mkdirSync(ordersDir);
-    }
-    const ordersPath = path.join(ordersDir, "orders.json");
-    let currentOrders: Order[] = [];
-    if (fs.existsSync(ordersPath)) {
-      try {
-        currentOrders = JSON.parse(fs.readFileSync(ordersPath, "utf-8"));
-      } catch (e) {
-        currentOrders = [];
-      }
-    }
-    currentOrders.push(newOrder);
-    fs.writeFileSync(ordersPath, JSON.stringify(currentOrders, null, 2));
-    console.log(`[Database] Pedido ${orderId} registrado localmente com sucesso!`);
+    await saveOrder(newOrder);
+    await saveCustomer({ name: clientName, phone, email, address });
+    console.log(`[Firestore] Pedido ${orderId} registrado com sucesso.`);
   } catch (e) {
-    console.error("[Database] Erro ao gravar pedido local:", e);
+    console.error("[Firestore] Erro ao gravar pedido:", e);
   }
 
   // --- GERAR MENSAGEM DO WHATSAPP FORMATADA (Alta Conversão) ---
