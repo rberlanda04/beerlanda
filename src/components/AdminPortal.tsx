@@ -254,7 +254,7 @@ export default function AdminPortal() {
     }
   };
 
-  const runSyncTool = async (endpoint: string, successText: string, method: "GET" | "POST" = "POST") => {
+  const runSyncTool = async (endpoint: string, fallbackText: string, method: "GET" | "POST" = "POST") => {
     if (!token) return;
     setIsActionLoading(true);
     setMessage(null);
@@ -262,7 +262,7 @@ export default function AdminPortal() {
       const res = await fetch(endpoint, { method, headers: authHeader(token) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Ocorreu um erro.");
-      setMessage({ type: "success", text: successText });
+      setMessage({ type: "success", text: data.message || fallbackText });
       await loadProducts(token);
     } catch (err: any) {
       setMessage({ type: "error", text: err.message || "Erro inesperado." });
@@ -344,11 +344,11 @@ export default function AdminPortal() {
                 </button>
                 <button
                   disabled={isActionLoading}
-                  onClick={() => runSyncTool("/api/admin/sync-sheets", "Planilha sincronizada com sucesso (produtos, cupons e avaliações).")}
+                  onClick={() => runSyncTool("/api/admin/sync-sheets", "Fotos preenchidas com sucesso.")}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-green-300 px-4 py-2 text-xs font-bold text-green-700 hover:bg-green-50 disabled:opacity-50"
                 >
                   <FileSpreadsheet className="h-3.5 w-3.5" />
-                  Sincronizar Planilha (a partir dos dados padrão)
+                  Preencher Fotos e IDs Faltantes
                 </button>
               </div>
             </div>

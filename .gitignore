@@ -9,3 +9,4 @@ coverage/
 .claude/
 .secrets/
 _test_storage.ts
+data/

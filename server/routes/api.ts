@@ -3,10 +3,10 @@ import path from 'path';
 import fs from 'fs';
 import rateLimit from 'express-rate-limit';
 import { Order } from '../../src/types';
-import { MOCK_PRODUCTS, MOCK_COUPONS, MOCK_REVIEWS, IN_MEMORY_ORDERS } from '../data/mock';
+import { MOCK_COUPONS, MOCK_REVIEWS, IN_MEMORY_ORDERS } from '../data/mock';
 import { randomUUID } from 'crypto';
-import { fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, isAuthorizedAdmin, PRODUCT_HEADERS, upsertProductRow, deleteProductRow } from '../services/googleService';
-import { hostProductImage, uploadImageBuffer } from '../services/storageService';
+import { fetchGoogleDriveFiles, renameDriveFile, cleanString, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify } from '../services/googleService';
+import { uploadImageBuffer } from '../services/storageService';
 
 const router = express.Router();
 
@@ -134,8 +134,9 @@ router.post("/api/admin/rename-files", adminLimiter, requireAdmin, async (req, r
 
     const report: any[] = [];
     let renamedCount = 0;
+    const products = await getProductsFromSheet(token);
 
-    for (const product of MOCK_PRODUCTS) {
+    for (const product of products) {
       const cleanedName = cleanString(product.name);
       let matchedFile: any = null;
 
@@ -198,37 +199,17 @@ router.post("/api/admin/rename-files", adminLimiter, requireAdmin, async (req, r
   }
 });
 
-// Sincronizar todos os dados com o Google Sheets do Usuário
+// Preenche fotos e IDs faltantes na planilha real de produtos (a fonte de
+// dados é a planilha em si, mantida manualmente — este botão não sobrescreve
+// os dados, só completa o que está em branco) e garante que Cupons/Avaliações
+// tenham ao menos os dados padrão para o site funcionar.
 router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const token = getRequestToken(req);
+    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
 
-    // 1. Obter imagens do Drive atualizadas para os produtos
-    const driveFiles = await fetchGoogleDriveFiles(token) || [];
+    const { updated, total } = await backfillMissingProductPhotos(token);
 
-    // 2. Preparar valores de produtos para gravação
-    // Fotos do Drive são copiadas para o bucket próprio (uma vez por produto):
-    // hotlink direto do Drive é sujeito a rate limiting e não serve como CDN.
-    const productRows: (string | number)[][] = [];
-    for (const p of MOCK_PRODUCTS) {
-      const driveUrl = findImageForProduct(p.name, driveFiles);
-      const imgUrl = await hostProductImage(p.slug, driveUrl);
-      productRows.push([
-        p.id,
-        p.name,
-        p.description,
-        p.price,
-        "",
-        imgUrl,
-        p.stock,
-        p.category,
-        p.slug,
-        "Sim"
-      ]);
-    }
-    const productSheetData = [PRODUCT_HEADERS, ...productRows];
-
-    // 3. Preparar valores de cupons
     const couponHeaders = ["codigo", "tipo", "valor", "ativo", "limite_uso"];
     const couponRows = MOCK_COUPONS.map(c => [
       c.code,
@@ -239,7 +220,6 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
     ]);
     const couponSheetData = [couponHeaders, ...couponRows];
 
-    // 4. Preparar valores padrão de avaliações (opcional, para dar match se não existir)
     const reviewHeaders = ["id", "nome", "estrelas", "comentario", "ativo"];
     const reviewRows = MOCK_REVIEWS.map(r => [
       r.id,
@@ -250,15 +230,13 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
     ]);
     const reviewSheetData = [reviewHeaders, ...reviewRows];
 
-    // 5. Gravar dados no Google Sheet
-    const pSuccess = await writeGoogleSheetRows("Produtos!A1:J100", productSheetData, token);
     const cSuccess = await writeGoogleSheetRows("Cupons!A1:E50", couponSheetData, token);
     const rSuccess = await writeGoogleSheetRows("Avaliacoes!A1:E50", reviewSheetData, token);
 
-    if (pSuccess && cSuccess && rSuccess) {
-      res.json({ success: true, message: "Planilhas de Produtos, Cupons e Avaliações configuradas com sucesso!" });
+    if (cSuccess && rSuccess) {
+      res.json({ success: true, message: `Fotos preenchidas: ${updated} de ${total} produtos. Cupons e Avaliações configurados.` });
     } else {
-      res.status(500).json({ error: "Falha ao gravar em uma ou mais abas da planilha do Google." });
+      res.status(500).json({ error: "Falha ao gravar as abas de Cupons/Avaliações." });
     }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -268,15 +246,6 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
 // -------------------------------------------------------------
 // PORTAL ADMINISTRATIVO: CRUD DE PRODUTOS (fonte de dados = Google Sheets)
 // -------------------------------------------------------------
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
 
 function parseProductBody(body: any) {
   const name = String(body.name || "").trim();

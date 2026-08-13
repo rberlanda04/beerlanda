@@ -1,5 +1,6 @@
 import { Product, Coupon, Review } from '../../src/types';
 import { MOCK_PRODUCTS, MOCK_COUPONS, MOCK_REVIEWS } from '../data/mock';
+import { hostProductImage } from './storageService';
 
 async function fetchGoogleSheetRows(range: string, token?: string): Promise<any[][] | null> {
   const sheetId = process.env.GOOGLE_SHEET_ID;
@@ -163,28 +164,58 @@ async function getSheetIdByTitle(tabName: string, token: string): Promise<number
   }
 }
 
-const PRODUCT_HEADERS = ["id", "nome", "descricao", "preco", "preco_promocional", "imagem_url", "estoque", "categoria", "slug_seo", "ativo"];
+// A planilha real da Beerlanda ("Base de dados - Site") usa este layout fixo
+// na aba de produtos — nome, preço em texto "R$ X,00", composição, estoque,
+// ID (em branco até ser preenchido por este app) e imagem.
+const PRODUCT_TAB = "base_de_dados_beerlanda";
+const PRODUCT_RANGE = `${PRODUCT_TAB}!A1:F5000`;
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function deriveCategoryFromName(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes("sabonete")) return "Sabonetes";
+  if (n.includes("vela")) return "Velas";
+  if (n.includes("balsamo") || n.includes("bálsamo")) return "Bálsamos";
+  if (n.includes("escalda") || n.includes("sais") || n.includes("sal ")) return "Sais";
+  return "Outros";
+}
+
+function parseBRLPrice(raw: string): number {
+  if (!raw) return 0;
+  const cleaned = String(raw).replace(/[^\d.,]/g, "").trim();
+  const normalized = cleaned.replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", ".");
+  return parseFloat(normalized) || 0;
+}
+
+function formatBRLPrice(value: number): string {
+  return `R$ ${value.toFixed(2).replace(".", ",")}`;
+}
 
 function productToRow(p: Partial<Product> & { id: string }): (string | number)[] {
   return [
-    p.id,
     p.name || "",
+    formatBRLPrice(p.price ?? 0),
     p.description || "",
-    p.price ?? 0,
-    p.promoPrice ?? "",
-    p.imageUrl || "",
     p.stock ?? 0,
-    p.category || "",
-    p.slug || p.id,
-    p.active === false ? "Não" : "Sim"
+    p.id,
+    p.imageUrl || ""
   ];
 }
 
 // Row numbers here are 1-based sheet rows (row 1 = header), matching what the Sheets API expects in A1 ranges.
+// ID lives in column E (index 4) in the real sheet's layout.
 async function findProductRowNumber(id: string, token: string): Promise<number | null> {
-  const rows = await fetchGoogleSheetRows("Produtos!A1:J5000", token);
+  const rows = await fetchGoogleSheetRows(PRODUCT_RANGE, token);
   if (!rows) return null;
-  const idx = rows.findIndex((row, i) => i > 0 && row[0] === id);
+  const idx = rows.findIndex((row, i) => i > 0 && row[4] === id);
   return idx === -1 ? null : idx + 1;
 }
 
@@ -192,9 +223,9 @@ async function upsertProductRow(product: Partial<Product> & { id: string }, toke
   const row = productToRow(product);
   const existingRowNumber = await findProductRowNumber(product.id, token);
   if (existingRowNumber) {
-    return writeGoogleSheetRows(`Produtos!A${existingRowNumber}:J${existingRowNumber}`, [row], token);
+    return writeGoogleSheetRows(`${PRODUCT_TAB}!A${existingRowNumber}:F${existingRowNumber}`, [row], token);
   }
-  return appendGoogleSheetRow("Produtos", row, token);
+  return appendGoogleSheetRow(PRODUCT_TAB, row, token);
 }
 
 async function deleteProductRow(id: string, token: string): Promise<boolean> {
@@ -202,7 +233,7 @@ async function deleteProductRow(id: string, token: string): Promise<boolean> {
   if (!rowNumber) return false;
 
   const sheetId = process.env.GOOGLE_SHEET_ID;
-  const tabSheetId = await getSheetIdByTitle("Produtos", token);
+  const tabSheetId = await getSheetIdByTitle(PRODUCT_TAB, token);
   if (!sheetId || tabSheetId === null) return false;
 
   try {
@@ -416,12 +447,15 @@ function getFallbackUnsplashImage(productName: string): string {
   return "https://images.unsplash.com/photo-1587049352846-4a222e784d38?auto=format&fit=crop&q=80&w=600";
 }
 
-// Normalize spreadsheet data to match standard TS structures
+// Lê a planilha real da Beerlanda: Nome | Preço unitário | Composição: | Estoque | ID | Imagem.
+// IDs em branco são derivados do nome e gravados de volta (só quando há token —
+// leituras públicas via API key nunca escrevem), então toda edição futura passa
+// a mirar a mesma linha de forma estável, mesmo que o nome do produto mude depois.
 async function getProductsFromSheet(token?: string): Promise<Product[]> {
-  const driveFiles = await fetchGoogleDriveFiles(token) || [];
-  const rows = await fetchGoogleSheetRows("Produtos!A1:J100", token);
-  
-  if (!rows) {
+  const rows = await fetchGoogleSheetRows(PRODUCT_RANGE, token);
+
+  if (!rows || rows.length <= 1) {
+    const driveFiles = await fetchGoogleDriveFiles(token) || [];
     console.log("[Google Sheets] Usando dados mockados com imagens dinâmicas do Google Drive.");
     return MOCK_PRODUCTS.map(p => ({
       ...p,
@@ -429,44 +463,77 @@ async function getProductsFromSheet(token?: string): Promise<Product[]> {
     }));
   }
 
-  const raw = mapRowsToObjects<any>(rows);
-  return raw.map((item, index) => {
-    const id = item.id || item.id_produto || `sheet-prod-${index}`;
-    const name = item.nome || item.name || "Produto Sem Nome";
-    const description = item.descricao || item.description || item.composicao || item.composição || "Produto artesanal Beerlanda de alta qualidade.";
-    const price = parseFloat(String(item.preco || item.price).replace(",", ".")) || 0;
-    const promoPriceStr = item.preco_promocional || item.promo_price || item.promocional;
-    const promoPrice = promoPriceStr ? parseFloat(String(promoPriceStr).replace(",", ".")) : undefined;
-    
-    // Tenta obter imagem das fotos do Google Drive, ou usa link direto da planilha
-    let imageUrl = item.imagem_url || item.image_url || "";
-    if (!imageUrl || imageUrl.startsWith("http://placeholder") || imageUrl.includes("unsplash.com/photo-1587049352846")) {
-      imageUrl = findImageForProduct(name, driveFiles);
+  const products: Product[] = [];
+  const idBackfills: { row: number; id: string }[] = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const name = String(row[0] || "").trim();
+    if (!name) continue;
+
+    const price = parseBRLPrice(row[1]);
+    const description = String(row[2] || "").trim() || "Produto artesanal Beerlanda, feito à mão.";
+    const stock = parseInt(String(row[3])) || 0;
+
+    let id = row[4] ? String(row[4]).trim() : "";
+    if (!id) {
+      id = `prod-${slugify(name)}`;
+      if (token) idBackfills.push({ row: i + 1, id });
     }
 
-    const stock = parseInt(String(item.estoque || item.stock)) || 0;
-    
-    let category = item.categoria || item.category || "";
-    if (!category) {
-      if (name.toLowerCase().includes("sabonete")) {
-        category = "Sabonetes";
-      } else if (name.toLowerCase().includes("vela")) {
-        category = "Velas";
-      } else if (name.toLowerCase().includes("balsamo") || name.toLowerCase().includes("bálsamo")) {
-        category = "Bálsamos";
-      } else if (name.toLowerCase().includes("escalda") || name.toLowerCase().includes("sais")) {
-        category = "Sais";
-      } else {
-        category = "Outros";
-      }
+    const imageUrl = row[5] ? String(row[5]).trim() : getFallbackUnsplashImage(name);
+
+    products.push({
+      id,
+      name,
+      description,
+      price,
+      promoPrice: undefined,
+      imageUrl,
+      stock,
+      category: deriveCategoryFromName(name),
+      slug: slugify(name),
+      active: true
+    });
+  }
+
+  if (token && idBackfills.length > 0) {
+    for (const b of idBackfills) {
+      await writeGoogleSheetRows(`${PRODUCT_TAB}!E${b.row}:E${b.row}`, [[b.id]], token);
     }
+    console.log(`[Google Sheets] ${idBackfills.length} ID(s) de produto preenchido(s) automaticamente.`);
+  }
 
-    const slug = item.slug_seo || item.slug || id.toLowerCase().replace(/\s+/g, "-");
-    const activeVal = String(item.ativo).trim().toLowerCase();
-    const active = activeVal === "sim" || activeVal === "yes" || activeVal === "true" || activeVal === "1" || activeVal === "";
+  return products;
+}
 
-    return { id, name, description, price, promoPrice, imageUrl, stock, category, slug, active };
-  });
+// Ação administrativa explícita: para cada produto sem foto na planilha,
+// tenta achar a correspondente no Drive, hospeda no bucket próprio e grava
+// a URL estável de volta na coluna Imagem.
+async function backfillMissingProductPhotos(token: string): Promise<{ updated: number; total: number }> {
+  const rows = await fetchGoogleSheetRows(PRODUCT_RANGE, token);
+  if (!rows || rows.length <= 1) return { updated: 0, total: 0 };
+
+  const driveFiles = await fetchGoogleDriveFiles(token) || [];
+  let updated = 0;
+  let total = 0;
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const name = String(row[0] || "").trim();
+    if (!name) continue;
+    total++;
+    if (row[5]) continue;
+
+    const driveUrl = findImageForProduct(name, driveFiles);
+    const hostedUrl = await hostProductImage(slugify(name), driveUrl);
+    if (hostedUrl && hostedUrl !== driveUrl) {
+      const wrote = await writeGoogleSheetRows(`${PRODUCT_TAB}!F${i + 1}:F${i + 1}`, [[hostedUrl]], token);
+      if (wrote) updated++;
+    }
+  }
+
+  return { updated, total };
 }
 
 async function getCouponsFromSheet(token?: string): Promise<Coupon[]> {
@@ -509,4 +576,4 @@ async function getReviewsFromSheet(token?: string): Promise<Review[]> {
   });
 }
 
-export { fetchGoogleSheetRows, createSheetTabIfNotExist, writeGoogleSheetRows, fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, isAuthorizedAdmin, PRODUCT_HEADERS, upsertProductRow, deleteProductRow };
+export { fetchGoogleSheetRows, createSheetTabIfNotExist, writeGoogleSheetRows, fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify, deriveCategoryFromName, PRODUCT_TAB };
