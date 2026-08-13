@@ -118,13 +118,138 @@ async function writeGoogleSheetRows(range: string, values: any[][], token: strin
   }
 }
 
+async function appendGoogleSheetRow(tabName: string, row: (string | number)[], token: string): Promise<boolean> {
+  const sheetId = process.env.GOOGLE_SHEET_ID;
+  if (!sheetId) return false;
+
+  await createSheetTabIfNotExist(tabName, token);
+
+  try {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tabName)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ values: [row] })
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      console.warn(`[Google Sheets] Falha ao adicionar linha em "${tabName}":`, errText);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error(`[Google Sheets] Erro de conexão ao adicionar linha em "${tabName}":`, error);
+    return false;
+  }
+}
+
+async function getSheetIdByTitle(tabName: string, token: string): Promise<number | null> {
+  const sheetId = process.env.GOOGLE_SHEET_ID;
+  if (!sheetId) return null;
+  try {
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const sheet = data.sheets?.find((s: any) => s.properties?.title === tabName);
+    return sheet?.properties?.sheetId ?? null;
+  } catch (error) {
+    console.error(`[Google Sheets] Erro ao buscar sheetId da aba "${tabName}":`, error);
+    return null;
+  }
+}
+
+const PRODUCT_HEADERS = ["id", "nome", "descricao", "preco", "preco_promocional", "imagem_url", "estoque", "categoria", "slug_seo", "ativo"];
+
+function productToRow(p: Partial<Product> & { id: string }): (string | number)[] {
+  return [
+    p.id,
+    p.name || "",
+    p.description || "",
+    p.price ?? 0,
+    p.promoPrice ?? "",
+    p.imageUrl || "",
+    p.stock ?? 0,
+    p.category || "",
+    p.slug || p.id,
+    p.active === false ? "Não" : "Sim"
+  ];
+}
+
+// Row numbers here are 1-based sheet rows (row 1 = header), matching what the Sheets API expects in A1 ranges.
+async function findProductRowNumber(id: string, token: string): Promise<number | null> {
+  const rows = await fetchGoogleSheetRows("Produtos!A1:J5000", token);
+  if (!rows) return null;
+  const idx = rows.findIndex((row, i) => i > 0 && row[0] === id);
+  return idx === -1 ? null : idx + 1;
+}
+
+async function upsertProductRow(product: Partial<Product> & { id: string }, token: string): Promise<boolean> {
+  const row = productToRow(product);
+  const existingRowNumber = await findProductRowNumber(product.id, token);
+  if (existingRowNumber) {
+    return writeGoogleSheetRows(`Produtos!A${existingRowNumber}:J${existingRowNumber}`, [row], token);
+  }
+  return appendGoogleSheetRow("Produtos", row, token);
+}
+
+async function deleteProductRow(id: string, token: string): Promise<boolean> {
+  const rowNumber = await findProductRowNumber(id, token);
+  if (!rowNumber) return false;
+
+  const sheetId = process.env.GOOGLE_SHEET_ID;
+  const tabSheetId = await getSheetIdByTitle("Produtos", token);
+  if (!sheetId || tabSheetId === null) return false;
+
+  try {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}:batchUpdate`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId: tabSheetId,
+              dimension: "ROWS",
+              startIndex: rowNumber - 1,
+              endIndex: rowNumber
+            }
+          }
+        }]
+      })
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      console.warn(`[Google Sheets] Falha ao excluir a linha do produto "${id}":`, errText);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error(`[Google Sheets] Erro de conexão ao excluir a linha do produto "${id}":`, error);
+    return false;
+  }
+}
+
 // -------------------------------------------------------------
 // ADMIN AUTHORIZATION
 // -------------------------------------------------------------
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "")
-  .split(",")
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
+// Read lazily (not as a module-level constant): server.ts's static imports
+// resolve this module before its own dotenv.config() call runs, so
+// process.env.ADMIN_EMAILS would otherwise still be undefined here.
+function getAdminEmails(): string[] {
+  return (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 // Resolves the Google account email behind an OAuth access token by asking
 // Google directly, so the server never has to trust a client-supplied identity.
@@ -133,7 +258,13 @@ async function getVerifiedEmailFromToken(token: string): Promise<string | null> 
     const res = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(token)}`);
     if (!res.ok) return null;
     const data = await res.json();
-    if (!data.email || data.email_verified !== "true") return null;
+    // Google's tokeninfo endpoint names this field "verified_email" for OAuth
+    // access tokens (what we get from Firebase's GoogleAuthProvider credential)
+    // vs. "email_verified" for ID tokens — accept either so we don't silently
+    // reject a legitimately verified account.
+    const verified = data.verified_email ?? data.email_verified;
+    const isVerified = verified === true || verified === "true";
+    if (!data.email || !isVerified) return null;
     return String(data.email).toLowerCase();
   } catch (error) {
     console.error("[Auth] Erro ao verificar token junto ao Google:", error);
@@ -142,12 +273,13 @@ async function getVerifiedEmailFromToken(token: string): Promise<string | null> 
 }
 
 async function isAuthorizedAdmin(token: string): Promise<boolean> {
-  if (ADMIN_EMAILS.length === 0) {
+  const adminEmails = getAdminEmails();
+  if (adminEmails.length === 0) {
     console.warn("[Auth] ADMIN_EMAILS não configurado — nenhum admin autorizado.");
     return false;
   }
   const email = await getVerifiedEmailFromToken(token);
-  return !!email && ADMIN_EMAILS.includes(email);
+  return !!email && adminEmails.includes(email);
 }
 
 // Map Google Sheets rows to typed objects using column headers
@@ -317,17 +449,15 @@ async function getProductsFromSheet(token?: string): Promise<Product[]> {
     let category = item.categoria || item.category || "";
     if (!category) {
       if (name.toLowerCase().includes("sabonete")) {
-        category = "Cosméticos";
+        category = "Sabonetes";
       } else if (name.toLowerCase().includes("vela")) {
         category = "Velas";
       } else if (name.toLowerCase().includes("balsamo") || name.toLowerCase().includes("bálsamo")) {
-        category = "Cosméticos";
+        category = "Bálsamos";
       } else if (name.toLowerCase().includes("escalda") || name.toLowerCase().includes("sais")) {
-        category = "Bem-estar";
-      } else if (name.toLowerCase().includes("abelha") || name.toLowerCase().includes("chaveiro") || name.toLowerCase().includes("adesivo") || name.toLowerCase().includes("ecopad") || name.toLowerCase().includes("ecobag")) {
-        category = "Outros";
+        category = "Sais";
       } else {
-        category = "Geral";
+        category = "Outros";
       }
     }
 
@@ -379,4 +509,4 @@ async function getReviewsFromSheet(token?: string): Promise<Review[]> {
   });
 }
 
-export { fetchGoogleSheetRows, createSheetTabIfNotExist, writeGoogleSheetRows, fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, isAuthorizedAdmin };
+export { fetchGoogleSheetRows, createSheetTabIfNotExist, writeGoogleSheetRows, fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, isAuthorizedAdmin, PRODUCT_HEADERS, upsertProductRow, deleteProductRow };

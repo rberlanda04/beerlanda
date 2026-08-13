@@ -1,6 +1,8 @@
 import { Product } from "./types";
 import { Droplet, Flame, Waves, Package, type LucideIcon } from "lucide-react";
 
+export const PRODUCT_CATEGORIES = ["Sabonetes", "Bálsamos", "Velas", "Sais", "Outros"];
+
 /**
  * Formata um valor numérico para o padrão de moeda Brasileira (BRL)
  */
@@ -24,9 +26,9 @@ export function scrollToTop() {
  */
 export function getCategoryIcon(category: string): LucideIcon {
   const key = category.toLowerCase();
-  if (key.includes("cosm")) return Droplet;
+  if (key.includes("sabonete") || key.includes("bálsamo") || key.includes("balsamo")) return Droplet;
   if (key.includes("vela")) return Flame;
-  if (key.includes("bem-estar") || key.includes("bem estar")) return Waves;
+  if (key.includes("sais") || key.includes("sal")) return Waves;
   return Package; // Outros / fallback
 }
 

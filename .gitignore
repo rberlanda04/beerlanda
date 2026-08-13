@@ -7,3 +7,5 @@ coverage/
 .env*
 !.env.example
 .claude/
+.secrets/
+_test_storage.ts

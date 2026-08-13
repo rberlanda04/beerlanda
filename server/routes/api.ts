@@ -4,7 +4,9 @@ import fs from 'fs';
 import rateLimit from 'express-rate-limit';
 import { Order } from '../../src/types';
 import { MOCK_PRODUCTS, MOCK_COUPONS, MOCK_REVIEWS, IN_MEMORY_ORDERS } from '../data/mock';
-import { fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, isAuthorizedAdmin } from '../services/googleService';
+import { randomUUID } from 'crypto';
+import { fetchGoogleDriveFiles, renameDriveFile, cleanString, findImageForProduct, getProductsFromSheet, getCouponsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, isAuthorizedAdmin, PRODUCT_HEADERS, upsertProductRow, deleteProductRow } from '../services/googleService';
+import { hostProductImage, uploadImageBuffer } from '../services/storageService';
 
 const router = express.Router();
 
@@ -205,22 +207,26 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
     const driveFiles = await fetchGoogleDriveFiles(token) || [];
 
     // 2. Preparar valores de produtos para gravação
-    const productHeaders = ["id", "nome", "descricao", "preco", "imagem_url", "estoque", "categoria", "slug_seo", "ativo"];
-    const productRows = MOCK_PRODUCTS.map(p => {
-      const imgUrl = findImageForProduct(p.name, driveFiles);
-      return [
+    // Fotos do Drive são copiadas para o bucket próprio (uma vez por produto):
+    // hotlink direto do Drive é sujeito a rate limiting e não serve como CDN.
+    const productRows: (string | number)[][] = [];
+    for (const p of MOCK_PRODUCTS) {
+      const driveUrl = findImageForProduct(p.name, driveFiles);
+      const imgUrl = await hostProductImage(p.slug, driveUrl);
+      productRows.push([
         p.id,
         p.name,
         p.description,
         p.price,
+        "",
         imgUrl,
         p.stock,
         p.category,
         p.slug,
         "Sim"
-      ];
-    });
-    const productSheetData = [productHeaders, ...productRows];
+      ]);
+    }
+    const productSheetData = [PRODUCT_HEADERS, ...productRows];
 
     // 3. Preparar valores de cupons
     const couponHeaders = ["codigo", "tipo", "valor", "ativo", "limite_uso"];
@@ -245,7 +251,7 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
     const reviewSheetData = [reviewHeaders, ...reviewRows];
 
     // 5. Gravar dados no Google Sheet
-    const pSuccess = await writeGoogleSheetRows("Produtos!A1:I100", productSheetData, token);
+    const pSuccess = await writeGoogleSheetRows("Produtos!A1:J100", productSheetData, token);
     const cSuccess = await writeGoogleSheetRows("Cupons!A1:E50", couponSheetData, token);
     const rSuccess = await writeGoogleSheetRows("Avaliacoes!A1:E50", reviewSheetData, token);
 
@@ -254,6 +260,111 @@ router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, re
     } else {
       res.status(500).json({ error: "Falha ao gravar em uma ou mais abas da planilha do Google." });
     }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// -------------------------------------------------------------
+// PORTAL ADMINISTRATIVO: CRUD DE PRODUTOS (fonte de dados = Google Sheets)
+// -------------------------------------------------------------
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function parseProductBody(body: any) {
+  const name = String(body.name || "").trim();
+  const category = String(body.category || "").trim();
+  if (!name || !category) return null;
+  return {
+    name,
+    description: String(body.description || ""),
+    price: Number(body.price) || 0,
+    promoPrice: body.promoPrice !== undefined && body.promoPrice !== "" ? Number(body.promoPrice) : undefined,
+    imageUrl: String(body.imageUrl || ""),
+    stock: Number(body.stock) || 0,
+    category,
+    slug: body.slug ? String(body.slug) : slugify(name),
+    active: body.active !== false
+  };
+}
+
+// Lista todos os produtos (incluindo inativos) para a tabela do portal
+router.get("/api/admin/products", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const token = getRequestToken(req);
+    const products = await getProductsFromSheet(token);
+    res.json(products);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/api/admin/products", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const token = getRequestToken(req);
+    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
+
+    const parsed = parseProductBody(req.body);
+    if (!parsed) return res.status(400).json({ error: "Nome e categoria são obrigatórios." });
+
+    const id = `prod-${randomUUID().slice(0, 8)}`;
+    const product = { id, ...parsed };
+    const ok = await upsertProductRow(product, token);
+    if (!ok) return res.status(500).json({ error: "Falha ao gravar o produto na planilha." });
+    res.json({ success: true, product });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/api/admin/products/:id", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const token = getRequestToken(req);
+    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
+
+    const parsed = parseProductBody(req.body);
+    if (!parsed) return res.status(400).json({ error: "Nome e categoria são obrigatórios." });
+
+    const product = { id: req.params.id, ...parsed };
+    const ok = await upsertProductRow(product, token);
+    if (!ok) return res.status(500).json({ error: "Falha ao atualizar o produto na planilha." });
+    res.json({ success: true, product });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/api/admin/products/:id", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const token = getRequestToken(req);
+    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
+
+    const ok = await deleteProductRow(req.params.id, token);
+    if (!ok) return res.status(404).json({ error: "Produto não encontrado na planilha." });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload de uma imagem (base64) para o Storage, retorna a URL pública estável
+router.post("/api/admin/products/:id/image", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const { imageBase64, contentType } = req.body;
+    if (!imageBase64 || !contentType || !String(contentType).startsWith("image/")) {
+      return res.status(400).json({ error: "Envie uma imagem válida em base64." });
+    }
+    const buffer = Buffer.from(imageBase64, "base64");
+    const ext = String(contentType).split("/")[1]?.split("+")[0] || "jpg";
+    const imageUrl = await uploadImageBuffer(buffer, `products/${req.params.id}-${Date.now()}.${ext}`, contentType);
+    res.json({ success: true, imageUrl });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

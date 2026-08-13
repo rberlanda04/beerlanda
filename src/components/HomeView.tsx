@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Product, Review } from "../types";
-import { formatCurrency, getCategoryIcon } from "../utils";
+import { formatCurrency, getCategoryIcon, PRODUCT_CATEGORIES } from "../utils";
 import { Star, ShieldAlert, Sparkles, ArrowRight, CheckCircle, Flame, StarHalf, Search, Heart, ShieldCheck, FlaskConical, Hand, Recycle } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -28,12 +28,11 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  const CATEGORY_ORDER = ["Cosméticos", "Bem-estar", "Velas", "Outros"];
   const discoveredCategories = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
   const sortedCategories = discoveredCategories.sort((a, b) => {
-    const idxA = CATEGORY_ORDER.indexOf(a);
-    const idxB = CATEGORY_ORDER.indexOf(b);
-    return (idxA === -1 ? CATEGORY_ORDER.length : idxA) - (idxB === -1 ? CATEGORY_ORDER.length : idxB);
+    const idxA = PRODUCT_CATEGORIES.indexOf(a);
+    const idxB = PRODUCT_CATEGORIES.indexOf(b);
+    return (idxA === -1 ? PRODUCT_CATEGORIES.length : idxA) - (idxB === -1 ? PRODUCT_CATEGORIES.length : idxB);
   });
   const categories = ["Todos", ...sortedCategories];
 
@@ -83,10 +82,10 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
             Do apiário para o seu ritual de cuidado
           </span>
           <h1 className="font-serif text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
-            Cosmética e artesanato nascidos na colmeia.
+            Natural & Sustentável
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-white/80 sm:text-base">
-            Sabonetes, bálsamos, velas de cera de abelha e artesanato em crochê, feitos à mão com respeito à apicultura natural. Estoque em tempo real, direto do nosso ateliê para você.
+            Sabonetes, bálsamos, velas naturais, sais e itens de algodão, feitos à mão, com respeito, amor e tempo. Estoque em tempo real, diretamente do nosso ateliê para você.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-4">
             <a
@@ -304,9 +303,6 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
             Quem Ama, Compartilha
             <Heart className="h-5 w-5 text-rose-500 fill-rose-500" />
           </h2>
-          <p className="text-xs text-natural-text/70 mt-1">
-            Avaliações extraídas dinamicamente da planilha para garantir máxima transparência
-          </p>
         </div>
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">

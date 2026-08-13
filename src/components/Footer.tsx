@@ -1,10 +1,9 @@
-import { ShieldCheck, Truck, RefreshCw, Heart, FileText, Map, Leaf, Rabbit, Instagram, Mail, Clock, Droplet, Flame, Waves, Package, Zap } from "lucide-react";
+import { ShieldCheck, Truck, RefreshCw, Heart, Leaf, Rabbit, Instagram, Mail, Clock, Droplet, Flame, Waves, Package, Zap } from "lucide-react";
 import logoImg from "../assets/images/logo.png";
 
 const INSTAGRAM_HANDLE = "beerlandaprodutosartesanais";
 
 interface FooterProps {
-  onOpenAdmin: () => void;
   appConfig?: {
     whatsappPhone: string;
     contactEmail: string;
@@ -13,7 +12,7 @@ interface FooterProps {
   };
 }
 
-export default function Footer({ onOpenAdmin, appConfig }: FooterProps) {
+export default function Footer({ appConfig }: FooterProps) {
   const currentYear = new Date().getFullYear();
   const email = appConfig?.contactEmail || "beerlandaprodutosartesanais@gmail.com";
 
@@ -84,10 +83,11 @@ export default function Footer({ onOpenAdmin, appConfig }: FooterProps) {
           <div>
             <h5 className="font-display font-bold text-sm text-charcoal-900 uppercase tracking-wider mb-4">Nossos Produtos</h5>
             <ul className="space-y-2 text-xs text-charcoal-900/70">
-              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Droplet className="h-3.5 w-3.5" />Sabonetes & Bálsamos</span></li>
-              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Flame className="h-3.5 w-3.5" />Velas de Cera de Abelha</span></li>
-              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Waves className="h-3.5 w-3.5" />Bem-estar Natural</span></li>
-              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Package className="h-3.5 w-3.5" />Outros (Adesivos, Chaveiros e Mais)</span></li>
+              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Droplet className="h-3.5 w-3.5" />Sabonetes</span></li>
+              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Droplet className="h-3.5 w-3.5" />Bálsamos</span></li>
+              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Flame className="h-3.5 w-3.5" />Velas Naturais</span></li>
+              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Waves className="h-3.5 w-3.5" />Sais</span></li>
+              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Package className="h-3.5 w-3.5" />Outros</span></li>
             </ul>
           </div>
 
@@ -112,36 +112,18 @@ export default function Footer({ onOpenAdmin, appConfig }: FooterProps) {
             </ul>
           </div>
 
-          {/* Coluna SEO & Integração */}
+          {/* Coluna Área da Equipe */}
           <div>
-            <h5 className="font-display font-bold text-sm text-charcoal-900 uppercase tracking-wider mb-4">SEO & Configurações</h5>
+            <h5 className="font-display font-bold text-sm text-charcoal-900 uppercase tracking-wider mb-4">Equipe Beerlanda</h5>
             <div className="flex flex-col gap-2">
-              <a 
-                href="/robots.txt" 
-                target="_blank" 
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-brand-700 hover:text-brand-900 hover:underline"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                robots.txt (Diretrizes de busca)
-              </a>
-              <a 
-                href="/sitemap.xml" 
-                target="_blank" 
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-brand-700 hover:text-brand-900 hover:underline"
-              >
-                <Map className="h-3.5 w-3.5" />
-                sitemap.xml (Mapa de SEO dinâmico)
-              </a>
-              <button 
-                onClick={onOpenAdmin}
+              <a
+                href="/admin"
                 className="mt-2 w-full text-left text-[10px] text-brand-800 bg-brand-200/40 border border-brand-200 p-2.5 rounded-lg hover:bg-brand-200/60 hover:border-brand-300 transition-all font-bold flex items-center justify-between gap-2 cursor-pointer"
                 id="footer-open-admin-btn"
               >
-                <span className="inline-flex items-center gap-1.5"><Zap className="h-3.5 w-3.5" />Painel de Sincronização Google</span>
+                <span className="inline-flex items-center gap-1.5"><Zap className="h-3.5 w-3.5" />Portal Administrativo</span>
                 <span className="text-[9px] bg-brand-500 text-white px-1.5 py-0.5 rounded-full font-bold">Acessar</span>
-              </button>
+              </a>
             </div>
           </div>
         </div>

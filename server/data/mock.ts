@@ -19,7 +19,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 60.00,
     imageUrl: "https://images.unsplash.com/photo-1617897903246-719242758050?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Bálsamos",
     slug: "balsamo-corporal-100g-ervas-pernas-cansadas",
     active: true
   },
@@ -30,7 +30,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 60.00,
     imageUrl: "https://images.unsplash.com/photo-1617897903246-719242758050?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Bálsamos",
     slug: "balsamo-corporal-100g-jasmim",
     active: true
   },
@@ -41,7 +41,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 60.00,
     imageUrl: "https://images.unsplash.com/photo-1617897903246-719242758050?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Bálsamos",
     slug: "balsamo-corporal-100g-neutro",
     active: true
   },
@@ -52,7 +52,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 20.00,
     imageUrl: "https://images.unsplash.com/photo-1617897903246-719242758050?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Bálsamos",
     slug: "balsamo-labial-incolor-aroma-tutti-frutti",
     active: true
   },
@@ -74,7 +74,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 8.00,
     imageUrl: "https://images.unsplash.com/photo-1515377905703-c4788e51af15?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Bem-estar",
+    category: "Sais",
     slug: "escalda-pes-50g-camomila-lavanda",
     active: true
   },
@@ -85,7 +85,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 8.00,
     imageUrl: "https://images.unsplash.com/photo-1515377905703-c4788e51af15?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Bem-estar",
+    category: "Sais",
     slug: "escalda-pes-50g-alecrim",
     active: true
   },
@@ -96,7 +96,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 8.00,
     imageUrl: "https://images.unsplash.com/photo-1515377905703-c4788e51af15?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Bem-estar",
+    category: "Sais",
     slug: "escalda-pes-50g-lavanda",
     active: true
   },
@@ -140,7 +140,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-100g-aveia-mel",
     active: true
   },
@@ -151,7 +151,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-100g-capim-limao-com-aveia-e-mel",
     active: true
   },
@@ -162,7 +162,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-100g-capim-limao-oleo-de-coco-e-mel",
     active: true
   },
@@ -173,7 +173,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-100g-erva-doce-com-manteiga-de-karite-e-mel",
     active: true
   },
@@ -184,7 +184,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-em-barra-aveia-mel-laranja-doce",
     active: true
   },
@@ -195,7 +195,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-100g-lavanda-com-manteiga-de-karite-e-mel",
     active: true
   },
@@ -206,7 +206,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-100g-lavanda-e-mel",
     active: true
   },
@@ -217,7 +217,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-100g-limao-siciliano-com-manteiga-de-karite-e-mel",
     active: true
   },
@@ -228,7 +228,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-100g-mamae-e-bebe-aveia-mel",
     active: true
   },
@@ -239,7 +239,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 14.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-100g-mel",
     active: true
   },
@@ -250,7 +250,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 18.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-120g-erva-doce-com-manteiga-de-karite-e-mel",
     active: true
   },
@@ -261,7 +261,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 18.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-120g-laranja-com-acafrao-e-mel",
     active: true
   },
@@ -272,7 +272,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 18.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-em-barra-120g-aveia-mel-laranja-doce",
     active: true
   },
@@ -283,7 +283,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 18.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-120g-lavanda-com-manteiga-de-karite-e-mel",
     active: true
   },
@@ -294,7 +294,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 9.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-60g-lavanda-e-mel",
     active: true
   },
@@ -305,7 +305,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 12.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-90g-aveia-mel",
     active: true
   },
@@ -316,7 +316,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 12.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-90g-capim-limao-oleo-coco-e-mel",
     active: true
   },
@@ -327,7 +327,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 12.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-90g-lavanda-com-manteiga-de-karite-e-mel",
     active: true
   },
@@ -338,7 +338,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 12.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-90g-limao-siciliano-com-manteiga-de-karite-e-mel",
     active: true
   },
@@ -349,7 +349,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 12.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-90g-mel",
     active: true
   },
@@ -360,7 +360,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 34.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-cacho-de-uva",
     active: true
   },
@@ -371,7 +371,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 12.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-facial-argila-amarela",
     active: true
   },
@@ -382,7 +382,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 12.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-facial-argila-cinza",
     active: true
   },
@@ -393,7 +393,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 12.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-facial-argila-rosa",
     active: true
   },
@@ -404,7 +404,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 25.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-liquido-erva-doce-mel",
     active: true
   },
@@ -415,7 +415,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 25.00,
     imageUrl: "https://images.unsplash.com/photo-1607006342411-92fc48cf7a69?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Cosméticos",
+    category: "Sabonetes",
     slug: "sabonete-liquido-laranja-mel",
     active: true
   },
@@ -426,7 +426,7 @@ const MOCK_PRODUCTS: Product[] = [
     price: 25.00,
     imageUrl: "https://images.unsplash.com/photo-1515377905703-c4788e51af15?auto=format&fit=crop&q=80&w=600",
     stock: 10,
-    category: "Bem-estar",
+    category: "Sais",
     slug: "sais-de-banho-camomila-lavanda",
     active: true
   },

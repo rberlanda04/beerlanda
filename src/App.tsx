@@ -9,11 +9,15 @@ import HomeView from "./components/HomeView";
 import ProductView from "./components/ProductView";
 import CartDrawer from "./components/CartDrawer";
 import CheckoutView from "./components/CheckoutView";
-import AdminPanel from "./components/AdminPanel";
+import AdminPortal from "./components/AdminPortal";
 
 import { motion, AnimatePresence } from "motion/react";
 
 export default function App() {
+  if (window.location.pathname === "/admin") {
+    return <AdminPortal />;
+  }
+
   // --- ESTADO GLOBAL ---
   const [appConfig, setAppConfig] = useState<{
     whatsappPhone: string;
@@ -35,22 +39,6 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isAdminOpen, setIsAdminOpen] = useState<boolean>(false);
-
-  const refreshProducts = async () => {
-    try {
-      setIsLoading(true);
-      const prodRes = await fetch("/api/products");
-      if (prodRes.ok) {
-        const prodData = await prodRes.json();
-        setProducts(prodData);
-      }
-    } catch (error) {
-      console.error("Falha ao recarregar produtos:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // --- CARREGAR DADOS DA API NO BOOT ---
   useEffect(() => {
@@ -303,19 +291,7 @@ export default function App() {
       />
 
       {/* Footer global */}
-      <Footer onOpenAdmin={() => setIsAdminOpen(true)} appConfig={appConfig} />
-
-      {/* Painel Admin e Sincronização Google */}
-      <AnimatePresence>
-        {isAdminOpen && (
-          <AdminPanel 
-            isOpen={isAdminOpen} 
-            onClose={() => setIsAdminOpen(false)} 
-            onRefreshProducts={refreshProducts} 
-            appConfig={appConfig}
-          />
-        )}
-      </AnimatePresence>
+      <Footer appConfig={appConfig} />
     </div>
   );
 }
