@@ -21,7 +21,7 @@ export default function Footer({ appConfig }: FooterProps) {
   return (
     <footer className="mt-16 border-t border-brand-200/50 bg-brand-100/50 pt-12 pb-8 text-charcoal-900">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        
+
         {/* Grid de Diferenciais de Compra */}
         <div className="grid grid-cols-1 gap-6 border-b border-brand-200/30 pb-10 md:grid-cols-3">
           <div className="flex items-start gap-4">
@@ -30,17 +30,17 @@ export default function Footer({ appConfig }: FooterProps) {
             </div>
             <div>
               <h4 className="font-display font-semibold text-charcoal-900">Entrega Rápida e Segura</h4>
-              <p className="text-xs text-charcoal-900/70 mt-1">Envios para todo o Brasil com embalagem térmica e protetora especial para potes de vidro.</p>
+              <p className="text-xs text-charcoal-900/70 mt-1">Envios para todo o Brasil via correios ou retirada à combinar em Curitiba e região.</p>
             </div>
           </div>
-          
+
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-200 text-brand-700">
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <h4 className="font-display font-semibold text-charcoal-900">Origem 100% Rastreável</h4>
-              <p className="text-xs text-charcoal-900/70 mt-1">Nossos produtos vêm de apiários sustentáveis certificados. Garantia de mel puro sem aditivos.</p>
+              <h4 className="font-display font-semibold text-charcoal-900">Origem Rastreável</h4>
+              <p className="text-xs text-charcoal-900/70 mt-1">Nossos produtos vêm de apiários sustentáveis. Garantia de mel puro sem aditivos.</p>
             </div>
           </div>
 
@@ -49,15 +49,15 @@ export default function Footer({ appConfig }: FooterProps) {
               <RefreshCw className="h-5 w-5" />
             </div>
             <div>
-              <h4 className="font-display font-semibold text-charcoal-900">Garantia de Satisfação</h4>
-              <p className="text-xs text-charcoal-900/70 mt-1">Se você não amar seu mel ou cosmético, devolvemos seu dinheiro em até 7 dias após o recebimento.</p>
+              <h4 className="font-display font-semibold text-charcoal-900">Natural e Sustentável</h4>
+              <p className="text-xs text-charcoal-900/70 mt-1">Somos um pequeno ateliê que produz tudo a mão, com muito respeito e carinho em todos os processos, da escolha dos ingredientes à embalagem final.</p>
             </div>
           </div>
         </div>
 
         {/* Links Principais e Info */}
         <div className="grid grid-cols-1 gap-8 py-10 md:grid-cols-4">
-          
+
           {/* Coluna Brand */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
@@ -66,8 +66,9 @@ export default function Footer({ appConfig }: FooterProps) {
                 Beer<span className="text-brand-500 font-extrabold">landa</span>
               </span>
             </div>
-            <p className="text-xs text-charcoal-900/60 leading-relaxed">
-              Cosmética e artesanato natural nascidos da apicultura consciente: mel, própolis e cera de abelha como insumos puros em cada sabonete, bálsamo, vela e peça feita à mão.
+            <p className="text-xs text-charcoal-900/60 leading-relaxed inline-flex flex-wrap items-center gap-1">
+              Produtos artesanais que têm as abelhas como inspiração: mel, própolis e presentes de forma pura em cada um de nossos produtos, feito um por um à mão
+              <Heart className="h-3 w-3 text-red-500 fill-red-500" />
             </p>
             <div className="mt-2 flex gap-2">
               <span className="inline-flex items-center gap-1 rounded bg-brand-200/50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-brand-800">
@@ -109,9 +110,8 @@ export default function Footer({ appConfig }: FooterProps) {
                 </a>
               </li>
               <li className="inline-flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />{email}</li>
-              <li className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />Seg a Sex: 08:00h às 18:00h</li>
-              <li className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />Sábados: 09:00h às 13:00h</li>
             </ul>
+
             <button
               onClick={() => setIsContactOpen(true)}
               className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-200/30 px-3 py-1.5 text-[11px] font-bold text-brand-800 hover:bg-brand-200/50 transition-colors cursor-pointer"

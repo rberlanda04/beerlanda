@@ -1,6 +1,6 @@
 import { initializeApp, getApps, applicationDefault } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats } from "../../src/types";
+import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats, AnalyticsData } from "../../src/types";
 
 if (!getApps().length) {
   initializeApp({
@@ -79,11 +79,17 @@ async function markOrderSynced(orderId: string): Promise<void> {
   await db.collection("orders").doc(orderId).set({ syncedToSheet: true }, { merge: true });
 }
 
-async function saveCustomer(customer: Omit<Customer, "lastOrderAt">): Promise<void> {
+async function saveCustomer(customer: Omit<Customer, "lastOrderAt" | "createdAt">): Promise<void> {
   const id = customer.phone.replace(/\D/g, "") || customer.email.toLowerCase();
   if (!id) return;
-  await db.collection("customers").doc(id).set(
-    { ...customer, lastOrderAt: new Date().toISOString() },
+  const ref = db.collection("customers").doc(id);
+  // createdAt só é gravado na primeira compra — necessário pro gráfico de
+  // "novos clientes ao longo do tempo" (clientes cadastrados antes desta
+  // mudança recebem createdAt na próxima compra que fizerem, não retroativo).
+  const existing = await ref.get();
+  const createdAt = existing.exists ? existing.data()?.createdAt : new Date().toISOString();
+  await ref.set(
+    { ...customer, lastOrderAt: new Date().toISOString(), createdAt },
     { merge: true }
   );
 }
@@ -174,11 +180,87 @@ async function getDashboardStats(): Promise<DashboardStats> {
   };
 }
 
+// -------------------------------------------------------------
+// ANÁLISES (gráficos do portal admin)
+// -------------------------------------------------------------
+function toDayKey(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function last30DaysKeys(): string[] {
+  const days: string[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+async function getAnalyticsData(): Promise<AnalyticsData> {
+  const [ordersSnap, customersSnap] = await Promise.all([
+    db.collection("orders").orderBy("createdAt", "desc").get(),
+    db.collection("customers").get()
+  ]);
+
+  const orders = ordersSnap.docs.map((d) => d.data() as Order);
+  const customers = customersSnap.docs.map((d) => d.data() as Customer);
+  const days = last30DaysKeys();
+
+  // Faturamento por dia (só pedidos pagos)
+  const revenueByDayMap = new Map<string, number>(days.map((d) => [d, 0]));
+  for (const order of orders) {
+    if (order.paymentStatus !== "Pago") continue;
+    const key = toDayKey(order.createdAt);
+    if (key && revenueByDayMap.has(key)) {
+      revenueByDayMap.set(key, (revenueByDayMap.get(key) || 0) + (order.total || 0));
+    }
+  }
+  const revenueByDay = days.map((date) => ({ date, revenue: revenueByDayMap.get(date) || 0 }));
+
+  // Pedidos por status
+  const statusCounts = new Map<string, number>();
+  for (const order of orders) {
+    const status = order.paymentStatus || "Desconhecido";
+    statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
+  }
+  const ordersByStatus = Array.from(statusCounts.entries()).map(([status, count]) => ({ status, count }));
+
+  // Produtos mais vendidos — só considera pedidos que já têm orderItems estruturado
+  const productTotals = new Map<string, { name: string; quantity: number; revenue: number }>();
+  for (const order of orders) {
+    for (const item of order.orderItems || []) {
+      const current = productTotals.get(item.productId) || { name: item.name, quantity: 0, revenue: 0 };
+      current.quantity += item.quantity;
+      current.revenue += item.quantity * item.unitPrice;
+      productTotals.set(item.productId, current);
+    }
+  }
+  const topProducts = Array.from(productTotals.values())
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10);
+
+  // Clientes novos por dia
+  const newCustomersByDayMap = new Map<string, number>(days.map((d) => [d, 0]));
+  for (const customer of customers) {
+    const key = toDayKey(customer.createdAt);
+    if (key && newCustomersByDayMap.has(key)) {
+      newCustomersByDayMap.set(key, (newCustomersByDayMap.get(key) || 0) + 1);
+    }
+  }
+  const newCustomersByDay = days.map((date) => ({ date, count: newCustomersByDayMap.get(date) || 0 }));
+
+  return { revenueByDay, ordersByStatus, topProducts, newCustomersByDay };
+}
+
 export {
   syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
   saveOrder, updateOrderPayment, getOrdersFromFirestore, getUnsyncedOrders, markOrderSynced,
   saveCustomer, getCustomersFromFirestore, getUnsyncedCustomers, markCustomerSynced,
   saveMessage, getMessagesFromFirestore, markMessageRead, getUnsyncedMessages, markMessageSynced,
   getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
-  getDashboardStats
+  getDashboardStats, getAnalyticsData
 };

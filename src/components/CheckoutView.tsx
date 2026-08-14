@@ -1,7 +1,17 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { CartItem, Coupon } from "../types";
 import { formatCurrency } from "../utils";
-import { ArrowLeft, AlertCircle, ShoppingBag, Truck, CreditCard, ShieldCheck } from "lucide-react";
+import { ArrowLeft, AlertCircle, ShoppingBag, Truck, CreditCard, ShieldCheck, RefreshCw, CheckCircle2 } from "lucide-react";
+
+interface ShippingOption {
+  price: number;
+  days: number;
+}
+
+interface ShippingOptions {
+  pac: ShippingOption;
+  sedex: ShippingOption;
+}
 
 interface CheckoutViewProps {
   cartItems: CartItem[];
@@ -40,6 +50,55 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
+  // Estado do cálculo de frete (Correios)
+  const [shippingOptions, setShippingOptions] = useState<ShippingOptions | null>(null);
+  const [selectedShipping, setSelectedShipping] = useState<"pac" | "sedex" | "combinar" | null>(null);
+  const [isCalculatingShipping, setIsCalculatingShipping] = useState(false);
+  const [shippingError, setShippingError] = useState<string | null>(null);
+  const lastCalculatedCep = useRef<string>("");
+
+  const calculateShipping = async (cep: string) => {
+    const digits = cep.replace(/\D/g, "");
+    if (digits.length !== 8 || digits === lastCalculatedCep.current) return;
+
+    lastCalculatedCep.current = digits;
+    setIsCalculatingShipping(true);
+    setShippingError(null);
+    setShippingOptions(null);
+    setSelectedShipping(null);
+
+    try {
+      const response = await fetch("/api/shipping/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cep: digits,
+          items: cartItems.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setShippingError(data.error || "Não foi possível calcular o frete agora.");
+        return;
+      }
+      setShippingOptions(data);
+      setSelectedShipping("pac");
+    } catch {
+      setShippingError("Erro de conexão ao calcular o frete.");
+    } finally {
+      setIsCalculatingShipping(false);
+    }
+  };
+
+  // Dispara o cálculo assim que o CEP chega a 8 dígitos
+  useEffect(() => {
+    const digits = formData.zipCode.replace(/\D/g, "");
+    if (digits.length !== 8) return;
+    const timer = setTimeout(() => calculateShipping(formData.zipCode), 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.zipCode]);
+
   // Calcular valores
   const subtotal = cartItems.reduce((acc, item) => {
     const price = item.product.promoPrice || item.product.price;
@@ -55,7 +114,11 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
     }
   }
 
-  const total = Math.max(0, subtotal - discountAmount);
+  const shippingCost =
+    (selectedShipping === "pac" || selectedShipping === "sedex") && shippingOptions
+      ? shippingOptions[selectedShipping].price
+      : 0;
+  const total = Math.max(0, subtotal - discountAmount + shippingCost);
 
   // Validar formulário
   const validateForm = () => {
@@ -76,6 +139,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
     if (!formData.zipCode.trim()) errors.zipCode = "CEP é obrigatório";
     if (!formData.neighborhood.trim()) errors.neighborhood = "Bairro é obrigatório";
     if (!formData.cityState.trim()) errors.cityState = "Cidade e Estado são obrigatórios";
+    if (!selectedShipping) errors.shipping = "Escolha uma opção de frete para continuar";
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -98,6 +162,8 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
       address: fullAddress,
       items: cartItems,
       total,
+      shippingCost,
+      shippingService: selectedShipping === "sedex" ? "SEDEX" : selectedShipping === "combinar" ? "A_COMBINAR" : "PAC",
     };
 
     try {
@@ -393,12 +459,85 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                 </div>
               )}
 
-              <div className="flex justify-between text-xs text-natural-organic font-bold">
-                <span className="flex items-center gap-1">
-                  <Truck className="h-3.5 w-3.5" />
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-natural-darkbrown mb-2">
+                  <Truck className="h-3.5 w-3.5 text-natural-gold" />
                   Frete
-                </span>
-                <span className="uppercase text-[10px] bg-natural-organic/10 text-natural-organic px-2 py-0.5 rounded font-bold">Grátis</span>
+                </div>
+
+                {selectedShipping === "combinar" ? (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5">
+                    <p className="flex items-center gap-1.5 text-[11px] text-amber-800 font-medium">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Frete a combinar — vamos calcular e enviar o valor por WhatsApp/Instagram antes do envio.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { lastCalculatedCep.current = ""; calculateShipping(formData.zipCode); }}
+                      className="mt-1.5 text-[11px] font-bold text-amber-800 underline cursor-pointer"
+                    >
+                      Tentar calcular o frete agora
+                    </button>
+                  </div>
+                ) : formData.zipCode.replace(/\D/g, "").length !== 8 ? (
+                  <p className="text-[11px] text-natural-text/60">Preencha o CEP para calcular o frete.</p>
+                ) : isCalculatingShipping ? (
+                  <p className="flex items-center gap-1.5 text-[11px] text-natural-text/60">
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    Calculando frete...
+                  </p>
+                ) : shippingError ? (
+                  <div className="rounded-lg bg-rose-50 border border-rose-200 p-2.5 space-y-1.5">
+                    <p className="text-[11px] text-rose-700 font-medium">{shippingError}</p>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => { lastCalculatedCep.current = ""; calculateShipping(formData.zipCode); }}
+                        className="text-[11px] font-bold text-rose-700 underline cursor-pointer"
+                      >
+                        Tentar novamente
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedShipping("combinar")}
+                        className="text-[11px] font-bold text-natural-darkbrown underline cursor-pointer"
+                      >
+                        Continuar mesmo assim (frete a combinar)
+                      </button>
+                    </div>
+                  </div>
+                ) : shippingOptions ? (
+                  <div className="space-y-2">
+                    {(["pac", "sedex"] as const).map((key) => {
+                      const opt = shippingOptions[key];
+                      const isSelected = selectedShipping === key;
+                      return (
+                        <button
+                          type="button"
+                          key={key}
+                          onClick={() => setSelectedShipping(key)}
+                          className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-xs cursor-pointer transition-colors ${
+                            isSelected ? "border-natural-gold bg-natural-gold/10" : "border-natural-border bg-white hover:bg-natural-card"
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5 font-bold text-natural-darkbrown">
+                            {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-natural-gold" />}
+                            {key === "pac" ? "PAC" : "SEDEX"}
+                            <span className="font-normal text-natural-text/60">— até {opt.days} dia{opt.days === 1 ? "" : "s"}</span>
+                          </span>
+                          <span className="font-mono font-bold text-natural-darkbrown">{formatCurrency(opt.price)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {formErrors.shipping && (
+                  <p className="mt-1.5 text-[11px] text-rose-600 font-medium flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {formErrors.shipping}
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-between text-base font-bold text-natural-darkbrown border-t border-natural-border pt-3">
@@ -428,7 +567,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
             {/* Botão de Fechamento de Alta Conversão */}
             <button
               onClick={handleSubmitOrder}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !selectedShipping}
               className="mt-4 w-full rounded-xl bg-natural-gold py-4 text-center text-sm font-bold text-white shadow-md hover:bg-natural-gold/90 hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
               id="confirm-checkout-btn"
             >

@@ -11,9 +11,10 @@ import {
   getUnsyncedOrders, markOrderSynced, getUnsyncedCustomers, markCustomerSynced,
   saveMessage, getMessagesFromFirestore, markMessageRead, getUnsyncedMessages, markMessageSynced,
   getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
-  getDashboardStats
+  getDashboardStats, getAnalyticsData
 } from '../services/firestoreService';
 import { createPaymentPreference, getPaymentDetails } from '../services/mercadoPagoService';
+import { getShippingOptions, defaultWeightForCategory } from '../services/correiosService';
 
 const router = express.Router();
 
@@ -40,6 +41,16 @@ async function requireAdmin(req: any, res: any, next: any) {
 const publicWriteLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas requisições. Tente novamente em alguns minutos." }
+});
+
+// Cálculo de frete pode ser chamado mais vezes enquanto o cliente ajusta o
+// CEP ou compara serviços — limite um pouco mais generoso que o de escrita.
+const shippingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 40,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Muitas requisições. Tente novamente em alguns minutos." }
@@ -130,6 +141,38 @@ router.post("/api/validate-coupon", publicWriteLimiter, async (req, res) => {
     res.json({ valid: true, coupon });
   } catch (error) {
     res.status(500).json({ error: "Erro ao validar cupom" });
+  }
+});
+
+// Cálculo de frete real (Correios): PAC + SEDEX pro CEP de destino, a partir
+// do peso total do carrinho. Nunca inventa um valor — se a API falhar, o
+// frontend recebe um erro claro pra mostrar "tentar novamente".
+router.post("/api/shipping/calculate", shippingLimiter, async (req, res) => {
+  const { cep, items } = req.body;
+
+  if (!cep || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "CEP e itens do carrinho são obrigatórios." });
+  }
+
+  try {
+    let products = await getProductsFromFirestore();
+    if (!products) {
+      products = await getProductsFromSheet();
+    }
+
+    const totalWeightGrams = items.reduce((sum: number, item: any) => {
+      const product = products!.find(p => p.id === item.productId);
+      const weight = product?.weightGrams ?? defaultWeightForCategory(product?.category || "");
+      return sum + weight * (Number(item.quantity) || 1);
+    }, 0);
+
+    const options = await getShippingOptions(cep, totalWeightGrams);
+    res.json(options);
+  } catch (error: any) {
+    // Detalhe técnico (ex: mensagem crua da API dos Correios) só no log do
+    // servidor — o cliente recebe uma mensagem genérica e acionável.
+    console.error("[Correios] Falha ao calcular frete:", error.message);
+    res.status(502).json({ error: "Não foi possível calcular o frete agora. Tente novamente em instantes ou fale com a gente." });
   }
 });
 
@@ -294,7 +337,8 @@ function parseProductBody(body: any) {
     stock: Number(body.stock) || 0,
     category,
     slug: body.slug ? String(body.slug) : slugify(name),
-    active: body.active !== false
+    active: body.active !== false,
+    weightGrams: body.weightGrams !== undefined && body.weightGrams !== "" ? Number(body.weightGrams) : undefined
   };
 }
 
@@ -384,6 +428,15 @@ router.get("/api/admin/dashboard", adminLimiter, requireAdmin, async (req, res) 
   try {
     const stats = await getDashboardStats();
     res.json(stats);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/api/admin/analytics", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const data = await getAnalyticsData();
+    res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -532,7 +585,7 @@ router.post("/api/admin/sync-firestore-to-sheet", adminLimiter, requireAdmin, as
 
 // 4. Checkout - Registra o Pedido e Gera o Link de Pagamento (Mercado Pago)
 router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
-  const { clientName, phone, email, address, items, total } = req.body;
+  const { clientName, phone, email, address, items, total, shippingCost, shippingService } = req.body;
 
   if (!clientName || !phone || !email || !address || !items || !total) {
     return res.status(400).json({ error: "Todos os campos de checkout são obrigatórios." });
@@ -545,6 +598,13 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     .map((item: any) => `${item.product.name} (x${item.quantity}) - R$ ${(item.product.promoPrice || item.product.price).toFixed(2)}`)
     .join(", ");
 
+  const orderItems = items.map((item: any) => ({
+    productId: item.product.id,
+    name: item.product.name,
+    quantity: item.quantity,
+    unitPrice: item.product.promoPrice || item.product.price
+  }));
+
   const newOrder: Order = {
     id: orderId,
     date: orderDate,
@@ -553,7 +613,10 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     email,
     address,
     items: formattedItems,
+    orderItems,
     total,
+    shippingCost: Number(shippingCost) || 0,
+    shippingService: shippingService === "SEDEX" ? "SEDEX" : shippingService === "A_COMBINAR" ? "A_COMBINAR" : "PAC",
     paymentStatus: "Pendente (Mercado Pago)",
     paymentMethod: "mercadopago"
   };
@@ -573,13 +636,23 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     ? process.env.APP_URL.replace(/\/$/, "")
     : `${req.protocol}://${req.get("host")}`;
 
+  const preferenceItems = items.map((item: any) => ({
+    title: item.product.name,
+    quantity: item.quantity,
+    unitPrice: item.product.promoPrice || item.product.price
+  }));
+
+  if (newOrder.shippingCost && newOrder.shippingCost > 0) {
+    preferenceItems.push({
+      title: `Frete (${newOrder.shippingService})`,
+      quantity: 1,
+      unitPrice: newOrder.shippingCost
+    });
+  }
+
   const preference = await createPaymentPreference({
     orderId,
-    items: items.map((item: any) => ({
-      title: item.product.name,
-      quantity: item.quantity,
-      unitPrice: item.product.promoPrice || item.product.price
-    })),
+    items: preferenceItems,
     payerName: clientName,
     payerEmail: email,
     baseUrl

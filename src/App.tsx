@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Product, Review, CartItem, Coupon } from "./types";
 import { scrollToTop } from "./utils";
 
@@ -10,13 +10,20 @@ import ProductView from "./components/ProductView";
 import CartDrawer from "./components/CartDrawer";
 import CheckoutView from "./components/CheckoutView";
 import PaymentStatusView from "./components/PaymentStatusView";
-import AdminPortal from "./components/AdminPortal";
 
 import { motion, AnimatePresence } from "motion/react";
 
+// Carregado sob demanda: só quem acessa /admin paga o custo (inclui recharts,
+// usado nos gráficos de Análises) — clientes da loja nunca baixam esse chunk.
+const AdminPortal = lazy(() => import("./components/AdminPortal"));
+
 export default function App() {
   if (window.location.pathname === "/admin") {
-    return <AdminPortal />;
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-natural-bg" />}>
+        <AdminPortal />
+      </Suspense>
+    );
   }
 
   // --- ESTADO GLOBAL ---

@@ -42,9 +42,9 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
 
   const jornada = [
     { Icon: ShieldCheck, title: "Respeito às abelhas", text: "Cera, mel e própolis, coletados ou adquiridos de pequenos produtores, sempre com sobra garantida para as abelhas." },
-    { Icon: FlaskConical, title: "Insumo puro", text: "Cada matéria-prima é selecionada e analisada antes de virar sabonete, bálsamo ou vela." },
+    { Icon: FlaskConical, title: "Insumo puro", text: "Cada matéria-prima é selecionada e analisada antes de se transformar em algum dos nossos produtos." },
     { Icon: Hand, title: "Feito à mão", text: "Produção artesanal em pequenos lotes, do envase ao crochê, com atenção em cada detalhe." },
-    { Icon: Recycle, title: "Embalagem consciente", text: "Vidro, alumínio reciclado e papel — nada de plástico descartável saindo do nosso ateliê." },
+    { Icon: Recycle, title: "Embalagem consciente", text: "Vidro, alumínio, algodão e papel; evitamos ao máximo o uso de plástico descartável em nosso ateliê." },
   ];
 
   // Animações para o Grid
@@ -65,7 +65,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
 
   return (
     <div className="flex flex-col gap-12">
-      
+
       {/* 1. HERO BANNER - identidade conectada à cultura das abelhas */}
       <section className="relative overflow-hidden rounded-2xl bg-[#5C4033] py-12 px-6 sm:px-12 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm border border-natural-border-dark">
         {/* Textura de favo de mel decorativa */}
@@ -96,8 +96,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
               <ArrowRight className="ml-2 h-4 w-4" />
             </a>
             <div className="flex items-center gap-1.5 text-xs text-white/70">
-              <span className="flex h-2.5 w-2.5 rounded-full bg-natural-organic animate-pulse" />
-              Sincronizado via Google Sheets
+
             </div>
           </div>
         </div>
@@ -137,11 +136,10 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${
-                  selectedCategory === cat
-                    ? "bg-natural-gold text-white shadow-sm"
-                    : "bg-natural-card text-natural-text border border-natural-border hover:bg-natural-border"
-                }`}
+                className={`inline-flex items-center gap-1.5 rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${selectedCategory === cat
+                  ? "bg-natural-gold text-white shadow-sm"
+                  : "bg-natural-card text-natural-text border border-natural-border hover:bg-natural-border"
+                  }`}
                 id={`cat-filter-${cat.toLowerCase()}`}
               >
                 {CatIcon && <CatIcon className="h-3.5 w-3.5" aria-hidden="true" />}
@@ -195,7 +193,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-natural-border bg-white shadow-xs hover:shadow-md transition-all"
                   id={`product-card-${product.id}`}
                 >
-                  
+
                   {/* Selos Promocionais e de Estoque */}
                   <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5">
                     {hasDiscount && (
@@ -218,7 +216,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                   </div>
 
                   {/* Imagem do Produto com Zoom e Fundo Natural */}
-                  <div 
+                  <div
                     className="relative aspect-square w-full overflow-hidden bg-natural-card border-b border-natural-border cursor-pointer flex items-center justify-center"
                     onClick={() => onSelectProduct(product)}
                   >
@@ -242,7 +240,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                       <CategoryIcon className="h-3 w-3" aria-hidden="true" />
                       {product.category}
                     </span>
-                    <h3 
+                    <h3
                       className="mt-1 font-display text-base font-bold text-natural-darkbrown group-hover:text-natural-gold cursor-pointer transition-colors line-clamp-1"
                       onClick={() => onSelectProduct(product)}
                     >
@@ -273,15 +271,14 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                       >
                         Detalhes
                       </button>
-                      
+
                       <button
                         onClick={() => onAddToCart(product)}
                         disabled={isOutOfStock}
-                        className={`flex-1 rounded-xl px-4 py-2.5 text-center text-xs font-bold transition-all cursor-pointer ${
-                          isOutOfStock
-                            ? "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
-                            : "bg-natural-gold text-white hover:bg-natural-gold/90 hover:shadow-xs active:scale-95"
-                        }`}
+                        className={`flex-1 rounded-xl px-4 py-2.5 text-center text-xs font-bold transition-all cursor-pointer ${isOutOfStock
+                          ? "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
+                          : "bg-natural-gold text-white hover:bg-natural-gold/90 hover:shadow-xs active:scale-95"
+                          }`}
                         id={`add-to-cart-${product.id}`}
                       >
                         {isOutOfStock ? "Esgotado" : "Comprar"}
@@ -325,7 +322,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                   "{rev.comment}"
                 </p>
               </div>
-              
+
               <div className="mt-4 flex items-center gap-2 border-t border-natural-border pt-3">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-natural-border text-xs font-bold text-natural-darkbrown">
                   {rev.name[0]}

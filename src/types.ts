@@ -9,6 +9,7 @@ export interface Product {
   category: string;
   slug: string;
   active: boolean;
+  weightGrams?: number;
 }
 
 export interface Coupon {
@@ -19,6 +20,13 @@ export interface Coupon {
   useLimit?: number;
 }
 
+export interface OrderItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+}
+
 export interface Order {
   id: string;
   date: string;
@@ -27,7 +35,10 @@ export interface Order {
   email: string;
   address: string;
   items: string; // Formatted list of items
+  orderItems?: OrderItem[]; // Structured line items (only present on orders created after this field was added)
   total: number;
+  shippingCost?: number;
+  shippingService?: "PAC" | "SEDEX" | "A_COMBINAR";
   paymentStatus: string;
   paymentMethod?: "mercadopago";
   mpPreferenceId?: string;
@@ -41,6 +52,7 @@ export interface Customer {
   email: string;
   address: string;
   lastOrderAt?: string;
+  createdAt?: string;
 }
 
 export interface ContactMessage {
@@ -61,6 +73,13 @@ export interface DashboardStats {
   totalProducts: number;
   unreadMessages: number;
   recentOrders: Order[];
+}
+
+export interface AnalyticsData {
+  revenueByDay: { date: string; revenue: number }[];
+  ordersByStatus: { status: string; count: number }[];
+  topProducts: { name: string; quantity: number; revenue: number }[];
+  newCustomersByDay: { date: string; count: number }[];
 }
 
 export interface Review {

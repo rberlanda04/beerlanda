@@ -10,7 +10,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Outros",
     slug: "abelha-amigurumi-media",
-    active: true
+    active: true,
+    weightGrams: 40
   },
   {
     id: "prod-02",
@@ -21,7 +22,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Bálsamos",
     slug: "balsamo-corporal-100g-ervas-pernas-cansadas",
-    active: true
+    active: true,
+    weightGrams: 130
   },
   {
     id: "prod-03",
@@ -32,7 +34,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Bálsamos",
     slug: "balsamo-corporal-100g-jasmim",
-    active: true
+    active: true,
+    weightGrams: 130
   },
   {
     id: "prod-04",
@@ -43,7 +46,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Bálsamos",
     slug: "balsamo-corporal-100g-neutro",
-    active: true
+    active: true,
+    weightGrams: 130
   },
   {
     id: "prod-05",
@@ -54,7 +58,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Bálsamos",
     slug: "balsamo-labial-incolor-aroma-tutti-frutti",
-    active: true
+    active: true,
+    weightGrams: 15
   },
   {
     id: "prod-06",
@@ -65,7 +70,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Outros",
     slug: "chaveiro-abelha",
-    active: true
+    active: true,
+    weightGrams: 20
   },
   {
     id: "prod-07",
@@ -76,7 +82,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sais",
     slug: "escalda-pes-50g-camomila-lavanda",
-    active: true
+    active: true,
+    weightGrams: 70
   },
   {
     id: "prod-08",
@@ -87,7 +94,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sais",
     slug: "escalda-pes-50g-alecrim",
-    active: true
+    active: true,
+    weightGrams: 70
   },
   {
     id: "prod-09",
@@ -98,7 +106,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sais",
     slug: "escalda-pes-50g-lavanda",
-    active: true
+    active: true,
+    weightGrams: 70
   },
   {
     id: "prod-10",
@@ -109,7 +118,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Outros",
     slug: "kit-adesivos",
-    active: true
+    active: true,
+    weightGrams: 15
   },
   {
     id: "prod-11",
@@ -120,7 +130,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Outros",
     slug: "kit-ecopads-3un",
-    active: true
+    active: true,
+    weightGrams: 25
   },
   {
     id: "prod-45",
@@ -131,7 +142,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Outros",
     slug: "ecobag-beerlanda",
-    active: true
+    active: true,
+    weightGrams: 90
   },
   {
     id: "prod-12",
@@ -142,7 +154,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-100g-aveia-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-13",
@@ -153,7 +166,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-100g-capim-limao-com-aveia-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-14",
@@ -164,7 +178,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-100g-capim-limao-oleo-de-coco-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-15",
@@ -175,7 +190,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-100g-erva-doce-com-manteiga-de-karite-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-16",
@@ -186,7 +202,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-em-barra-aveia-mel-laranja-doce",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-17",
@@ -197,7 +214,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-100g-lavanda-com-manteiga-de-karite-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-18",
@@ -208,7 +226,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-100g-lavanda-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-19",
@@ -219,7 +238,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-100g-limao-siciliano-com-manteiga-de-karite-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-20",
@@ -230,7 +250,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-100g-mamae-e-bebe-aveia-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-21",
@@ -241,7 +262,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-100g-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-22",
@@ -252,7 +274,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-120g-erva-doce-com-manteiga-de-karite-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-23",
@@ -263,7 +286,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-120g-laranja-com-acafrao-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-24",
@@ -274,7 +298,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-em-barra-120g-aveia-mel-laranja-doce",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-25",
@@ -285,7 +310,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-120g-lavanda-com-manteiga-de-karite-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-26",
@@ -296,7 +322,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-60g-lavanda-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-27",
@@ -307,7 +334,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-90g-aveia-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-28",
@@ -318,7 +346,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-90g-capim-limao-oleo-coco-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-29",
@@ -329,7 +358,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-90g-lavanda-com-manteiga-de-karite-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-30",
@@ -340,7 +370,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-90g-limao-siciliano-com-manteiga-de-karite-e-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-31",
@@ -351,7 +382,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-90g-mel",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-32",
@@ -362,7 +394,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-cacho-de-uva",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-33",
@@ -373,7 +406,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-facial-argila-amarela",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-34",
@@ -384,7 +418,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-facial-argila-cinza",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-35",
@@ -395,7 +430,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-facial-argila-rosa",
-    active: true
+    active: true,
+    weightGrams: 110
   },
   {
     id: "prod-36",
@@ -406,7 +442,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-liquido-erva-doce-mel",
-    active: true
+    active: true,
+    weightGrams: 150
   },
   {
     id: "prod-37",
@@ -417,7 +454,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sabonetes",
     slug: "sabonete-liquido-laranja-mel",
-    active: true
+    active: true,
+    weightGrams: 150
   },
   {
     id: "prod-38",
@@ -428,7 +466,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Sais",
     slug: "sais-de-banho-camomila-lavanda",
-    active: true
+    active: true,
+    weightGrams: 70
   },
   {
     id: "prod-39",
@@ -439,7 +478,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Velas",
     slug: "vela-na-lata-130g-citronela",
-    active: true
+    active: true,
+    weightGrams: 250
   },
   {
     id: "prod-40",
@@ -450,7 +490,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Velas",
     slug: "vela-na-lata-130g-jasmim",
-    active: true
+    active: true,
+    weightGrams: 250
   },
   {
     id: "prod-41",
@@ -461,7 +502,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Velas",
     slug: "vela-na-lata-130g-laranja",
-    active: true
+    active: true,
+    weightGrams: 250
   },
   {
     id: "prod-42",
@@ -472,7 +514,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Velas",
     slug: "vela-na-lata-130g-lavanda",
-    active: true
+    active: true,
+    weightGrams: 250
   },
   {
     id: "prod-43",
@@ -483,7 +526,8 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Velas",
     slug: "vela-na-lata-130g-limao-siciliano",
-    active: true
+    active: true,
+    weightGrams: 250
   },
   {
     id: "prod-44",
@@ -494,37 +538,38 @@ const MOCK_PRODUCTS: Product[] = [
     stock: 10,
     category: "Velas",
     slug: "vela-na-lata-130g-menta-eucalipto",
-    active: true
+    active: true,
+    weightGrams: 250
   }
 ];
 
 const MOCK_REVIEWS: Review[] = [
   {
     id: "rev-01",
-    name: "Mariana Santos",
+    name: "Agatha S.",
     rating: 5,
-    comment: "Estou apaixonada pelo sabonete de Aveia & Mel com óleo essencial de Laranja doce! É extremamente cheiroso, hidratante e deixa a pele super macia. A entrega foi super rápida e o cuidado com a embalagem foi impecável. Recomendo demais!",
+    comment: "Os produtos Beerlanda são todos de altíssima qualidade, eu mesma já testei cada um deles, comprei para família e amigas e super recomendo. É até difícil dizer qual é o meu preferido, mas deixo minha recomendação aqui para os bálsamos que utilizei no processo de cicatrização da minha tatuagem e ficaram lindas, hidratadas e com realce na cor.",
     active: true
   },
   {
     id: "rev-02",
     name: "Carlos Eduardo Costa",
     rating: 5,
-    comment: "O bálsamo corporal de ervas para pernas cansadas é sensacional. Uso todo dia depois do trabalho e sinto o relaxamento imediato. Produto de altíssimo padrão, dá pra sentir o própolis e o mel na fórmula.",
+    comment: "Comprei o bálsamo labial e ele simplesmente salvou meus lábios! Resolvi conhecer o bálsamo corporal de jasmim, é extremamente hidratante, o cheiro é uma delícia, minhas tatuagens parecem novas!.",
     active: true
   },
   {
     id: "rev-03",
     name: "Beatriz Lima",
     rating: 5,
-    comment: "O sabonete facial de argila rosa salvou minha pele. Estava com muita sensibilidade e vermelhidão por conta do frio, e em uma semana de uso já vi uma melhora absurda. Rápida absorção e cheirinho suave!",
+    comment: "O sabonete facial de argila rosa salvou minha pele. Estava com muita sensibilidade e vermelhidão por conta do frio, e em uma semana de uso já vi uma melhora absurda. ",
     active: true
   },
   {
     id: "rev-04",
-    name: "Dr. Roberto Silva",
+    name: "Mariana Silva",
     rating: 5,
-    comment: "Recomendo os bálsamos à base de cera de abelha e própolis da Beerlanda para todos que buscam uma barreira de hidratação natural e regeneração da pele livre de químicos artificiais.",
+    comment: "Estou apaixonada pelo sabonete de Aveia & Mel com óleo essencial de Laranja doce! É extremamente cheiroso, hidratante e deixa a pele super macia. A entrega foi super rápida e o cuidado com a embalagem foi impecável. Recomendo demais!",
     active: true
   }
 ];

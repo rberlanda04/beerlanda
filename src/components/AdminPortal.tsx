@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import {
   RefreshCw, LogOut, ArrowLeft, LayoutDashboard, Package,
-  ShoppingBag, Users, Tag, Mail, Wrench
+  ShoppingBag, Users, Tag, Mail, Wrench, BarChart3
 } from "lucide-react";
 import { User } from "firebase/auth";
 import { googleSignIn, initAuth, logout } from "../lib/googleAuth";
 import AdminDashboard from "./admin/AdminDashboard";
+import AdminAnalytics from "./admin/AdminAnalytics";
 import AdminProducts from "./admin/AdminProducts";
 import AdminOrders from "./admin/AdminOrders";
 import AdminCustomers from "./admin/AdminCustomers";
@@ -13,10 +14,11 @@ import AdminCoupons from "./admin/AdminCoupons";
 import AdminMessages from "./admin/AdminMessages";
 import AdminTools from "./admin/AdminTools";
 
-type Section = "dashboard" | "products" | "orders" | "customers" | "coupons" | "messages" | "tools";
+type Section = "dashboard" | "analytics" | "products" | "orders" | "customers" | "coupons" | "messages" | "tools";
 
 const NAV: { id: Section; label: string; Icon: any }[] = [
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
+  { id: "analytics", label: "Análises", Icon: BarChart3 },
   { id: "products", label: "Produtos", Icon: Package },
   { id: "orders", label: "Pedidos", Icon: ShoppingBag },
   { id: "customers", label: "Clientes", Icon: Users },
@@ -159,6 +161,7 @@ export default function AdminPortal() {
             <h2 className="font-display text-xl font-bold mb-5">{NAV.find((n) => n.id === section)?.label}</h2>
 
             {section === "dashboard" && <AdminDashboard token={token} />}
+            {section === "analytics" && <AdminAnalytics token={token} />}
             {section === "products" && <AdminProducts token={token} />}
             {section === "orders" && <AdminOrders token={token} />}
             {section === "customers" && <AdminCustomers token={token} />}

@@ -17,6 +17,7 @@ interface ProductFormState {
   category: string;
   active: boolean;
   imageUrl: string;
+  weightGrams: string;
 }
 
 const EMPTY_FORM: ProductFormState = {
@@ -27,7 +28,8 @@ const EMPTY_FORM: ProductFormState = {
   stock: "",
   category: PRODUCT_CATEGORIES[0],
   active: true,
-  imageUrl: ""
+  imageUrl: "",
+  weightGrams: ""
 };
 
 function fileToBase64(file: File): Promise<string> {
@@ -79,7 +81,8 @@ export default function AdminProducts({ token }: AdminProductsProps) {
       stock: String(p.stock),
       category: p.category,
       active: p.active,
-      imageUrl: p.imageUrl
+      imageUrl: p.imageUrl,
+      weightGrams: p.weightGrams !== undefined ? String(p.weightGrams) : ""
     });
     setImageFile(null);
     setImagePreview(p.imageUrl);
@@ -120,7 +123,8 @@ export default function AdminProducts({ token }: AdminProductsProps) {
       stock: form.stock,
       category: form.category,
       active: form.active,
-      imageUrl: form.imageUrl
+      imageUrl: form.imageUrl,
+      weightGrams: form.weightGrams
     };
 
     try {
@@ -346,6 +350,20 @@ export default function AdminProducts({ token }: AdminProductsProps) {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold block mb-1">Peso para envio (gramas)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="Ex: 110"
+                  value={form.weightGrams}
+                  onChange={(e) => setForm({ ...form, weightGrams: e.target.value })}
+                  className="w-full rounded-lg border border-natural-border px-3 py-2 text-xs"
+                />
+                <p className="mt-1 text-[10px] text-natural-text/60">Usado para calcular o frete dos Correios no checkout. Se deixar em branco, um peso padrão da categoria é usado.</p>
               </div>
 
               <div>
