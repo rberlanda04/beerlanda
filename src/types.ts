@@ -94,3 +94,37 @@ export interface CartItem {
   product: Product;
   quantity: number;
 }
+
+// --- Clube da Colmeia (assinatura mensal) ---
+
+export type SubscriptionTier = "essencial" | "premium";
+
+export interface Subscriber {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  city: string;
+  categories: string[];
+  aromas: string[];
+  tier: SubscriptionTier;
+  // "interessado": captado na fase de lista de interesse (sem cobrança ainda).
+  // Os demais status ficam prontos pra quando as assinaturas pagas abrirem.
+  status: "interessado" | "pendente" | "ativo" | "pausado" | "cancelado";
+  mpPreapprovalId?: string;
+  createdAt?: string;
+}
+
+export interface MonthlyCollection {
+  month: string; // "YYYY-MM"
+  tier: SubscriptionTier;
+  theme: string;
+  story: string;
+  productIds: string[];
+  revealed: boolean;
+}
+
+export interface SubscriptionConfig {
+  essencialPlanId?: string;
+  premiumPlanId?: string;
+}

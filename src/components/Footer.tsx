@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ShieldCheck, Truck, RefreshCw, Heart, Leaf, Rabbit, Instagram, Mail, MessageSquare, Clock, Droplet, Flame, Waves, Package, Zap } from "lucide-react";
+import { ShieldCheck, Truck, RefreshCw, Heart, Leaf, Rabbit, Instagram, Mail, MessageSquare, Clock, Droplet, Flame, Waves, Package, Zap, Gift } from "lucide-react";
 import logoImg from "../assets/images/logo.png";
 import ContactForm from "./ContactForm";
 
@@ -91,6 +91,12 @@ export default function Footer({ appConfig }: FooterProps) {
               <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Flame className="h-3.5 w-3.5" />Velas Naturais</span></li>
               <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Waves className="h-3.5 w-3.5" />Sais</span></li>
               <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Package className="h-3.5 w-3.5" />Outros</span></li>
+              <li>
+                <a href="#clube" className="inline-flex items-center gap-1.5 font-bold text-brand-700 hover:text-brand-900" id="footer-clube-link">
+                  <Gift className="h-3.5 w-3.5" />
+                  Clube da Colmeia (em breve)
+                </a>
+              </li>
             </ul>
           </div>
 

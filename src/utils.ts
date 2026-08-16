@@ -21,6 +21,22 @@ export function scrollToTop() {
 }
 
 /**
+ * Máscaras de formulário reutilizadas no checkout e na assinatura do Clube da Colmeia.
+ */
+export function maskPhone(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 2) return digits.replace(/^(\d*)/, "($1");
+  if (digits.length <= 7) return digits.replace(/^(\d{2})(\d*)/, "($1) $2");
+  return digits.replace(/^(\d{2})(\d{5}|\d{4})(\d*)/, "($1) $2-$3");
+}
+
+export function maskCep(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return digits.replace(/^(\d{5})(\d*)/, "$1-$2");
+}
+
+/**
  * Mapeia as categorias reais do catálogo Beerlanda para um ícone consistente,
  * usado nos chips de filtro, cards de produto e breadcrumb.
  */

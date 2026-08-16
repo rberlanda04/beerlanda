@@ -10,6 +10,7 @@ import ProductView from "./components/ProductView";
 import CartDrawer from "./components/CartDrawer";
 import CheckoutView from "./components/CheckoutView";
 import PaymentStatusView from "./components/PaymentStatusView";
+import ClubeView from "./components/ClubeView";
 
 import { motion, AnimatePresence } from "motion/react";
 
@@ -41,7 +42,7 @@ export default function App() {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [currentView, setCurrentView] = useState<"home" | "product" | "checkout" | "payment-success" | "payment-failure" | "payment-pending">("home");
+  const [currentView, setCurrentView] = useState<"home" | "product" | "checkout" | "payment-success" | "payment-failure" | "payment-pending" | "clube">("home");
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -151,6 +152,9 @@ export default function App() {
         setSelectedProduct(null);
         setCartItems([]);
         setAppliedCoupon(null);
+      } else if (hash === "#clube") {
+        setCurrentView("clube");
+        setSelectedProduct(null);
       } else {
         // Padrão: Home
         setCurrentView("home");
@@ -285,6 +289,18 @@ export default function App() {
                 appliedCoupon={appliedCoupon}
                 onBackToCart={() => setIsCartOpen(true)}
               />
+            </motion.div>
+          )}
+
+          {currentView === "clube" && (
+            <motion.div
+              key="clube"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.25 }}
+            >
+              <ClubeView onBackToHome={navigateToHome} />
             </motion.div>
           )}
 

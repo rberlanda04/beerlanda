@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Product, Review } from "../types";
 import { formatCurrency, getCategoryIcon, PRODUCT_CATEGORIES } from "../utils";
-import { Star, ShieldAlert, Sparkles, ArrowRight, CheckCircle, Flame, StarHalf, Search, Heart, ShieldCheck, FlaskConical, Hand, Recycle } from "lucide-react";
+import { Star, ShieldAlert, Sparkles, ArrowRight, CheckCircle, Flame, StarHalf, Search, Heart, ShieldCheck, FlaskConical, Hand, Recycle, Award } from "lucide-react";
 import { motion } from "motion/react";
 
 function BeeIcon({ className }: { className?: string }) {
@@ -27,6 +27,14 @@ interface HomeViewProps {
 export default function HomeView({ products, reviews, onSelectProduct, onAddToCart, isLoading }: HomeViewProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [favorites, setFavorites] = useState<Product[]>([]);
+
+  useEffect(() => {
+    fetch("/api/favorites")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setFavorites(data?.products || []))
+      .catch(() => {});
+  }, []);
 
   const discoveredCategories = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
   const sortedCategories = discoveredCategories.sort((a, b) => {
@@ -101,6 +109,82 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
           </div>
         </div>
       </section>
+
+      {/* 1.5 FAVORITOS DA COLMEIA — com base no que a comunidade do Clube mais usa */}
+      {favorites.length > 0 && (
+        <section>
+          <div className="text-center mb-6">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-natural-gold">
+              <Award className="h-3.5 w-3.5" />
+              Favoritos da Colmeia
+            </span>
+            <h2 className="font-display text-2xl font-bold text-natural-darkbrown sm:text-3xl mt-1">
+              Escolhidos pela nossa comunidade
+            </h2>
+            <p className="text-xs text-natural-text/70 mt-1">
+              Com base no que os membros do Clube da Colmeia mais dizem usar no dia a dia
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+            {favorites.map((product) => {
+              const activePrice = product.promoPrice || product.price;
+              const CategoryIcon = getCategoryIcon(product.category);
+              return (
+                <motion.div
+                  key={product.id}
+                  initial={{ opacity: 0, y: 15 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border-2 border-natural-gold/40 bg-white shadow-xs hover:shadow-md transition-all"
+                  id={`favorite-card-${product.id}`}
+                >
+                  <span className="absolute top-3 left-3 z-10 inline-flex items-center gap-1 rounded-md bg-natural-gold px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+                    <Award className="h-3 w-3" />
+                    Favorito
+                  </span>
+
+                  <div
+                    className="relative aspect-square w-full overflow-hidden bg-natural-card border-b border-natural-border cursor-pointer"
+                    onClick={() => onSelectProduct(product)}
+                  >
+                    <img
+                      src={product.imageUrl}
+                      alt={product.name}
+                      referrerPolicy="no-referrer"
+                      className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                  </div>
+
+                  <div className="flex flex-1 flex-col p-5">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-natural-gold">
+                      <CategoryIcon className="h-3 w-3" aria-hidden="true" />
+                      {product.category}
+                    </span>
+                    <h3
+                      className="mt-1 font-display text-base font-bold text-natural-darkbrown group-hover:text-natural-gold cursor-pointer transition-colors line-clamp-1"
+                      onClick={() => onSelectProduct(product)}
+                    >
+                      {product.name}
+                    </h3>
+                    <div className="mt-3 flex items-baseline gap-2">
+                      <span className="text-xl font-bold text-natural-darkbrown">{formatCurrency(activePrice)}</span>
+                    </div>
+                    <button
+                      onClick={() => onAddToCart(product)}
+                      className="mt-4 rounded-xl bg-natural-gold px-4 py-2.5 text-center text-xs font-bold text-white hover:bg-natural-gold/90 hover:shadow-xs active:scale-95 transition-all cursor-pointer"
+                      id={`add-to-cart-favorite-${product.id}`}
+                    >
+                      Comprar
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* 2. BUSCA E FILTROS RÁPIDOS (Categorias) */}
       <section id="catalogo" className="scroll-mt-20">

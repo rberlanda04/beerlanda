@@ -1,10 +1,13 @@
-import { initializeApp, getApps, applicationDefault } from "firebase-admin/app";
+import { initializeApp, getApps, applicationDefault, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats, AnalyticsData } from "../../src/types";
+import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats, AnalyticsData, Subscriber, SubscriptionTier, MonthlyCollection, SubscriptionConfig } from "../../src/types";
+import { randomUUID } from "crypto";
+import { getServiceAccountCredentials } from "./gcpCredentials";
 
 if (!getApps().length) {
+  const serviceAccount = getServiceAccountCredentials();
   initializeApp({
-    credential: applicationDefault(),
+    credential: serviceAccount ? cert(serviceAccount as any) : applicationDefault(),
     projectId: process.env.GOOGLE_CLOUD_PROJECT || "beerlanda"
   });
 }
@@ -256,11 +259,78 @@ async function getAnalyticsData(): Promise<AnalyticsData> {
   return { revenueByDay, ordersByStatus, topProducts, newCustomersByDay };
 }
 
+// -------------------------------------------------------------
+// CLUBE DA COLMEIA (assinatura mensal)
+// -------------------------------------------------------------
+async function saveSubscriber(data: { name: string; phone: string; email: string; city: string; categories: string[]; aromas: string[]; tier: SubscriptionTier }): Promise<string> {
+  const id = data.phone.replace(/\D/g, "") ? `${data.phone.replace(/\D/g, "")}-${randomUUID().slice(0, 6)}` : randomUUID();
+  const subscriber: Subscriber = { id, ...data, status: "interessado", createdAt: new Date().toISOString() };
+  await db.collection("subscribers").doc(id).set(subscriber);
+  return id;
+}
+
+async function getInterestedCount(): Promise<number> {
+  const snap = await db.collection("subscribers").count().get();
+  return snap.data().count;
+}
+
+// Conta quantas vezes cada categoria foi marcada em "o que você mais costuma
+// usar?" no formulário do Clube — usado pra destacar os "Favoritos" na Home
+// com base no que a comunidade realmente prefere, não numa escolha manual.
+async function getCategoryVotes(): Promise<Record<string, number>> {
+  const snap = await db.collection("subscribers").get();
+  const votes: Record<string, number> = {};
+  for (const doc of snap.docs) {
+    const categories = (doc.data().categories as string[]) || [];
+    for (const category of categories) {
+      votes[category] = (votes[category] || 0) + 1;
+    }
+  }
+  return votes;
+}
+
+async function setSubscriberPreapproval(id: string, mpPreapprovalId: string): Promise<void> {
+  await db.collection("subscribers").doc(id).set({ mpPreapprovalId }, { merge: true });
+}
+
+async function updateSubscriberStatusById(id: string, status: Subscriber["status"]): Promise<void> {
+  await db.collection("subscribers").doc(id).set({ status }, { merge: true });
+}
+
+async function getSubscribersFromFirestore(): Promise<Subscriber[]> {
+  const snap = await db.collection("subscribers").orderBy("createdAt", "desc").get();
+  return snap.docs.map((d) => d.data() as Subscriber);
+}
+
+function monthlyCollectionDocId(month: string, tier: SubscriptionTier): string {
+  return `${month}_${tier}`;
+}
+
+async function getMonthlyCollection(month: string, tier: SubscriptionTier): Promise<MonthlyCollection | null> {
+  const doc = await db.collection("monthlyCollections").doc(monthlyCollectionDocId(month, tier)).get();
+  return doc.exists ? (doc.data() as MonthlyCollection) : null;
+}
+
+async function saveMonthlyCollection(collection: MonthlyCollection): Promise<void> {
+  await db.collection("monthlyCollections").doc(monthlyCollectionDocId(collection.month, collection.tier)).set(collection);
+}
+
+async function getSubscriptionConfig(): Promise<SubscriptionConfig> {
+  const doc = await db.collection("config").doc("subscriptionPlans").get();
+  return doc.exists ? (doc.data() as SubscriptionConfig) : {};
+}
+
+async function saveSubscriptionConfig(config: SubscriptionConfig): Promise<void> {
+  await db.collection("config").doc("subscriptionPlans").set(config, { merge: true });
+}
+
 export {
   syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
   saveOrder, updateOrderPayment, getOrdersFromFirestore, getUnsyncedOrders, markOrderSynced,
   saveCustomer, getCustomersFromFirestore, getUnsyncedCustomers, markCustomerSynced,
   saveMessage, getMessagesFromFirestore, markMessageRead, getUnsyncedMessages, markMessageSynced,
   getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
-  getDashboardStats, getAnalyticsData
+  getDashboardStats, getAnalyticsData,
+  saveSubscriber, setSubscriberPreapproval, updateSubscriberStatusById, getSubscribersFromFirestore, getInterestedCount, getCategoryVotes,
+  getMonthlyCollection, saveMonthlyCollection, getSubscriptionConfig, saveSubscriptionConfig
 };

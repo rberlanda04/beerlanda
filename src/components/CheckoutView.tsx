@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CartItem, Coupon } from "../types";
-import { formatCurrency } from "../utils";
+import { formatCurrency, maskPhone, maskCep } from "../utils";
 import { ArrowLeft, AlertCircle, ShoppingBag, Truck, CreditCard, ShieldCheck, RefreshCw, CheckCircle2 } from "lucide-react";
 
 interface ShippingOption {
@@ -17,19 +17,6 @@ interface CheckoutViewProps {
   cartItems: CartItem[];
   appliedCoupon: Coupon | null;
   onBackToCart: () => void;
-}
-
-function maskPhone(value: string): string {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
-  if (digits.length <= 2) return digits.replace(/^(\d*)/, "($1");
-  if (digits.length <= 7) return digits.replace(/^(\d{2})(\d*)/, "($1) $2");
-  return digits.replace(/^(\d{2})(\d{5}|\d{4})(\d*)/, "($1) $2-$3");
-}
-
-function maskCep(value: string): string {
-  const digits = value.replace(/\D/g, "").slice(0, 8);
-  if (digits.length <= 5) return digits;
-  return digits.replace(/^(\d{5})(\d*)/, "$1-$2");
 }
 
 export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }: CheckoutViewProps) {

@@ -1,7 +1,12 @@
 import { Storage } from "@google-cloud/storage";
+import { getServiceAccountCredentials } from "./gcpCredentials";
 
 const BUCKET_NAME = process.env.STORAGE_BUCKET || "beerlanda-product-images";
-const storage = new Storage({ projectId: process.env.GOOGLE_CLOUD_PROJECT || "beerlanda" });
+const serviceAccount = getServiceAccountCredentials();
+const storage = new Storage({
+  projectId: process.env.GOOGLE_CLOUD_PROJECT || "beerlanda",
+  ...(serviceAccount ? { credentials: serviceAccount as any } : {})
+});
 const bucket = storage.bucket(BUCKET_NAME);
 
 function publicUrl(destPath: string): string {

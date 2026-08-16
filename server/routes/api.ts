@@ -1,6 +1,6 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import { Order, Coupon } from '../../src/types';
+import { Order, Coupon, Subscriber, MonthlyCollection } from '../../src/types';
 import { MOCK_REVIEWS } from '../data/mock';
 import { randomUUID } from 'crypto';
 import { fetchGoogleDriveFiles, renameDriveFile, cleanString, getProductsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, appendGoogleSheetRow, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify } from '../services/googleService';
@@ -11,9 +11,12 @@ import {
   getUnsyncedOrders, markOrderSynced, getUnsyncedCustomers, markCustomerSynced,
   saveMessage, getMessagesFromFirestore, markMessageRead, getUnsyncedMessages, markMessageSynced,
   getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
-  getDashboardStats, getAnalyticsData
+  getDashboardStats, getAnalyticsData,
+  saveSubscriber, updateSubscriberStatusById, getSubscribersFromFirestore, getInterestedCount, getCategoryVotes,
+  getMonthlyCollection, saveMonthlyCollection, getSubscriptionConfig, saveSubscriptionConfig
 } from '../services/firestoreService';
 import { createPaymentPreference, getPaymentDetails } from '../services/mercadoPagoService';
+import { createSubscriptionPlan, getSubscriptionDetails } from '../services/mercadoPagoSubscriptionService';
 import { getShippingOptions, defaultWeightForCategory } from '../services/correiosService';
 
 const router = express.Router();
@@ -111,6 +114,49 @@ router.get("/api/products", async (req, res) => {
   }
 });
 
+// Favoritos da Home: 3 produtos escolhidos a partir das categorias mais
+// marcadas em "o que você mais costuma usar?" no formulário do Clube da
+// Colmeia — não é curadoria manual, reflete o que a comunidade já disse.
+const FAVORITES_CATEGORY_FALLBACK = ["Sabonetes", "Bálsamos", "Velas", "Sais", "Outros"];
+
+router.get("/api/favorites", async (req, res) => {
+  try {
+    let products = await getProductsFromFirestore();
+    if (!products) {
+      const token = getRequestToken(req);
+      products = await getProductsFromSheet(token);
+    }
+    const activeProducts = products.filter(p => p.active && p.stock > 0);
+
+    const votes = await getCategoryVotes();
+    const categoriesPresent = Array.from(new Set(activeProducts.map(p => p.category)));
+    const rankedCategories = categoriesPresent.sort((a, b) => {
+      const diff = (votes[b] || 0) - (votes[a] || 0);
+      if (diff !== 0) return diff;
+      return FAVORITES_CATEGORY_FALLBACK.indexOf(a) - FAVORITES_CATEGORY_FALLBACK.indexOf(b);
+    });
+
+    const picked: typeof activeProducts = [];
+    const basedOn: string[] = [];
+    for (const category of rankedCategories) {
+      if (picked.length >= 3) break;
+      const candidate = activeProducts.find(p => p.category === category && !picked.includes(p));
+      if (candidate) {
+        picked.push(candidate);
+        basedOn.push(category);
+      }
+    }
+    for (const p of activeProducts) {
+      if (picked.length >= 3) break;
+      if (!picked.includes(p)) picked.push(p);
+    }
+
+    res.json({ products: picked, basedOn });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 2. Listar Avaliações Ativas (Prova Social)
 router.get("/api/reviews", async (req, res) => {
   try {
@@ -173,6 +219,76 @@ router.post("/api/shipping/calculate", shippingLimiter, async (req, res) => {
     // servidor — o cliente recebe uma mensagem genérica e acionável.
     console.error("[Correios] Falha ao calcular frete:", error.message);
     res.status(502).json({ error: "Não foi possível calcular o frete agora. Tente novamente em instantes ou fale com a gente." });
+  }
+});
+
+// -------------------------------------------------------------
+// CLUBE DA COLMEIA (assinatura mensal recorrente)
+// -------------------------------------------------------------
+
+function currentMonthKey(): string {
+  return new Date().toISOString().slice(0, 7); // YYYY-MM
+}
+
+function subscriptionBaseUrl(req: any): string {
+  return process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL"
+    ? process.env.APP_URL.replace(/\/$/, "")
+    : `${req.protocol}://${req.get("host")}`;
+}
+
+// Prévia pública do mês corrente: só tema/história quando o admin marcar como
+// revelado — a lista de produtos nunca é exposta aqui (a graça é a surpresa).
+router.get("/api/clube/current-collection", async (req, res) => {
+  try {
+    const month = currentMonthKey();
+    const [essencial, premium] = await Promise.all([
+      getMonthlyCollection(month, "essencial"),
+      getMonthlyCollection(month, "premium")
+    ]);
+    const teaser = (c: MonthlyCollection | null) => (c?.revealed ? { theme: c.theme, story: c.story } : null);
+    res.json({ month, essencial: teaser(essencial), premium: teaser(premium) });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Fase atual do Clube: só captação de interesse, sem cobrança — guarda a
+// pessoa como "interessada" pra já ir construindo a Primeira Colmeia. A
+// integração de cobrança recorrente (mercadoPagoSubscriptionService.ts,
+// /api/admin/subscription-plans/setup) já existe e fica pronta pra quando as
+// assinaturas pagas abrirem, só não é chamada aqui ainda.
+router.post("/api/subscribe", publicWriteLimiter, async (req, res) => {
+  const { name, phone, email, city, categories, aromas, tier } = req.body;
+
+  if (!name || !phone || !email || !city || (tier !== "essencial" && tier !== "premium")) {
+    return res.status(400).json({ error: "Nome, contato, cidade e formato preferido são obrigatórios." });
+  }
+
+  try {
+    await saveSubscriber({
+      name,
+      phone,
+      email,
+      city,
+      categories: Array.isArray(categories) ? categories : [],
+      aromas: Array.isArray(aromas) ? aromas : [],
+      tier
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[Clube da Colmeia] Falha ao registrar interesse:", error);
+    res.status(500).json({ error: "Não foi possível registrar seu interesse agora. Tente novamente em instantes." });
+  }
+});
+
+// Contador público (só o número) pra mostrar quantas pessoas já fazem parte
+// da Primeira Colmeia — reforça pertencimento sem expor nenhum dado pessoal.
+router.get("/api/clube/interesse-count", async (req, res) => {
+  try {
+    const count = await getInterestedCount();
+    res.json({ count });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -442,6 +558,80 @@ router.get("/api/admin/analytics", adminLimiter, requireAdmin, async (req, res) 
   }
 });
 
+// Cria os 2 planos recorrentes no Mercado Pago (uma vez só) e guarda os IDs —
+// idempotente: se já existir configuração completa, não recria.
+router.post("/api/admin/subscription-plans/setup", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const existing = await getSubscriptionConfig();
+    if (existing.essencialPlanId && existing.premiumPlanId) {
+      return res.json({ success: true, alreadyConfigured: true, config: existing });
+    }
+
+    const baseUrl = `${subscriptionBaseUrl(req)}/#clube`;
+
+    const essencial = existing.essencialPlanId
+      ? { id: existing.essencialPlanId }
+      : await createSubscriptionPlan({ reason: "Colmeia Essencial — Clube da Colmeia Beerlanda", price: 35, baseUrl });
+    const premium = existing.premiumPlanId
+      ? { id: existing.premiumPlanId }
+      : await createSubscriptionPlan({ reason: "Colmeia Premium — Clube da Colmeia Beerlanda", price: 80, baseUrl });
+
+    if (!essencial || !premium) {
+      return res.status(502).json({ error: "Não foi possível criar um ou mais planos no Mercado Pago." });
+    }
+
+    const config = { essencialPlanId: essencial.id, premiumPlanId: premium.id };
+    await saveSubscriptionConfig(config);
+    res.json({ success: true, config });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Curadoria da "colheita do mês": tema, história e produtos por plano.
+router.get("/api/admin/monthly-collection", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const month = String(req.query.month || currentMonthKey());
+    const [essencial, premium] = await Promise.all([
+      getMonthlyCollection(month, "essencial"),
+      getMonthlyCollection(month, "premium")
+    ]);
+    res.json({ month, essencial, premium });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/api/admin/monthly-collection", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const { month, tier, theme, story, productIds, revealed } = req.body;
+    if (!month || (tier !== "essencial" && tier !== "premium")) {
+      return res.status(400).json({ error: "Mês e plano são obrigatórios." });
+    }
+    const collection: MonthlyCollection = {
+      month: String(month),
+      tier,
+      theme: String(theme || ""),
+      story: String(story || ""),
+      productIds: Array.isArray(productIds) ? productIds : [],
+      revealed: Boolean(revealed)
+    };
+    await saveMonthlyCollection(collection);
+    res.json({ success: true, collection });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/api/admin/subscribers", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const subscribers = await getSubscribersFromFirestore();
+    res.json(subscribers);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get("/api/admin/orders", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const orders = await getOrdersFromFirestore();
@@ -680,6 +870,23 @@ router.post("/api/webhooks/mercadopago", async (req, res) => {
   try {
     const paymentId = req.query["data.id"] || req.body?.data?.id;
     const type = req.query.type || req.body?.type;
+
+    // Assinaturas do Clube da Colmeia: evento separado dos pagamentos avulsos.
+    if (type === "subscription_preapproval" && paymentId) {
+      const subscription = await getSubscriptionDetails(String(paymentId));
+      if (subscription?.external_reference) {
+        const subscriptionStatusMap: Record<string, Subscriber["status"]> = {
+          authorized: "ativo",
+          paused: "pausado",
+          cancelled: "cancelado",
+          pending: "pendente"
+        };
+        const status = subscriptionStatusMap[subscription.status || ""] || "pendente";
+        await updateSubscriberStatusById(subscription.external_reference, status);
+        console.log(`[Clube da Colmeia] Assinante ${subscription.external_reference} atualizado para "${status}".`);
+      }
+      return res.status(200).send("ok");
+    }
 
     if (type !== "payment" || !paymentId) {
       return res.status(200).send("ignored");
