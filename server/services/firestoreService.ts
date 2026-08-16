@@ -4,10 +4,27 @@ import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats, Analy
 import { randomUUID } from "crypto";
 import { getServiceAccountCredentials } from "./gcpCredentials";
 
-if (!getApps().length) {
+// cert() valida o formato da chave na hora — se FIREBASE_SERVICE_ACCOUNT_KEY
+// estiver malformada (colada errado no painel da plataforma, por exemplo),
+// isso NÃO pode derrubar o carregamento do módulo inteiro: numa função
+// serverless (Vercel), um throw aqui crasha TODAS as rotas, até as que nunca
+// tocam no Firestore. Por isso cai pra ADC nesse caso, e o erro real só
+// aparece quando alguma rota tentar ler/gravar de verdade.
+function buildFirebaseCredential() {
   const serviceAccount = getServiceAccountCredentials();
+  if (serviceAccount) {
+    try {
+      return cert(serviceAccount as any);
+    } catch (error: any) {
+      console.error("[Firestore] FIREBASE_SERVICE_ACCOUNT_KEY inválida, caindo para Application Default Credentials:", error.message);
+    }
+  }
+  return applicationDefault();
+}
+
+if (!getApps().length) {
   initializeApp({
-    credential: serviceAccount ? cert(serviceAccount as any) : applicationDefault(),
+    credential: buildFirebaseCredential(),
     projectId: process.env.GOOGLE_CLOUD_PROJECT || "beerlanda"
   });
 }
