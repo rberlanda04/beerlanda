@@ -575,7 +575,9 @@ router.post("/api/admin/subscription-plans/setup", adminLimiter, requireAdmin, a
       return res.json({ success: true, alreadyConfigured: true, config: existing });
     }
 
-    const baseUrl = `${resolveAppBaseUrl(req)}/#clube`;
+    // #abelhas é a tela de agradecimento de quem concluir o pagamento —
+    // distinta do formulário em #clube.
+    const baseUrl = `${resolveAppBaseUrl(req)}/#abelhas`;
 
     const essencial = existing.essencialPlanId
       ? { id: existing.essencialPlanId }
