@@ -1,5 +1,7 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
+import fs from 'fs';
+import path from 'path';
 import { Order, Coupon, Subscriber, MonthlyCollection } from '../../src/types';
 import { MOCK_REVIEWS } from '../data/mock';
 import { randomUUID } from 'crypto';
@@ -978,6 +980,103 @@ router.get("/sitemap.xml", async (req, res) => {
     res.send(xml);
   } catch (error) {
     res.status(500).send("Erro ao gerar sitemap");
+  }
+});
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Meta tags por produto (SSR mínimo): o app é uma SPA e o roteador interno só
+// reage a #hash, então um bot/scraper batendo direto em /produto/:slug (como
+// os links do sitemap e qualquer link compartilhado no WhatsApp/Instagram)
+// via GET simples só via HTML estático — sem isso, todo link de produto
+// mostrava o título/imagem genéricos da Home em vez do produto real.
+router.get("/produto/:slug", async (req, res, next) => {
+  try {
+    let products = await getProductsFromFirestore();
+    if (!products) {
+      products = await getProductsFromSheet();
+    }
+    const product = products.find(p => p.slug === req.params.slug && p.active);
+    if (!product) return next();
+
+    const reviews = (await getReviewsFromSheet()).filter(r => r.active);
+
+    const indexPath = process.env.NODE_ENV === "production"
+      ? path.join(process.cwd(), "dist", "index.html")
+      : path.join(process.cwd(), "index.html");
+    let html = fs.readFileSync(indexPath, "utf-8");
+
+    const baseUrl = resolveAppBaseUrl(req);
+    const title = escapeHtml(`${product.name} | Beerlanda`);
+    const description = escapeHtml(product.description.slice(0, 160));
+    const url = `${baseUrl}/produto/${product.slug}`;
+    const image = product.imageUrl || `${baseUrl}/og-image.png`;
+
+    html = html
+      .replace(/<title>.*?<\/title>/, `<title>${title}</title>`)
+      .replace(/<meta name="description" content=".*?" \/>/, `<meta name="description" content="${description}" />`)
+      .replace(/<meta property="og:title" content=".*?" \/>/, `<meta property="og:title" content="${title}" />`)
+      .replace(/<meta property="og:description" content=".*?" \/>/, `<meta property="og:description" content="${description}" />`)
+      .replace(/<meta property="og:image" content=".*?" \/>/, `<meta property="og:image" content="${image}" />`)
+      .replace(/<meta property="og:url" content=".*?" \/>/, `<meta property="og:url" content="${url}" />`)
+      .replace(/<meta name="twitter:title" content=".*?" \/>/, `<meta name="twitter:title" content="${title}" />`)
+      .replace(/<meta name="twitter:description" content=".*?" \/>/, `<meta name="twitter:description" content="${description}" />`)
+      .replace(/<meta name="twitter:image" content=".*?" \/>/, `<meta name="twitter:image" content="${image}" />`)
+      .replace(/<link rel="canonical" href=".*?" \/>/, `<link rel="canonical" href="${url}" />`);
+
+    const productSchema = {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      name: product.name,
+      description: product.description,
+      image,
+      url,
+      brand: { "@type": "Brand", name: "Beerlanda" },
+      offers: {
+        "@type": "Offer",
+        priceCurrency: "BRL",
+        price: String(product.price),
+        availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+        url
+      },
+      // Avaliações da Beerlanda não são vinculadas a um produto específico, então
+      // a nota reflete a satisfação geral da loja — nunca um número inventado por
+      // item, o que o Google trata como dado estruturado enganoso.
+      ...(reviews.length > 0 ? {
+        aggregateRating: {
+          "@type": "AggregateRating",
+          ratingValue: (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1),
+          reviewCount: String(reviews.length)
+        }
+      } : {})
+    };
+
+    const breadcrumbSchema = {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Beerlanda", item: `${baseUrl}/` },
+        { "@type": "ListItem", position: 2, name: product.category, item: `${baseUrl}/#produto/${product.slug}` },
+        { "@type": "ListItem", position: 3, name: product.name, item: url }
+      ]
+    };
+
+    html = html.replace(
+      "</head>",
+      `<script type="application/ld+json">${JSON.stringify(productSchema)}</script>\n` +
+      `  <script type="application/ld+json">${JSON.stringify(breadcrumbSchema)}</script>\n  </head>`
+    );
+
+    res.type("html").send(html);
+  } catch (error) {
+    next();
   }
 });
 

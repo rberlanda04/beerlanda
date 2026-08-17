@@ -1,25 +1,26 @@
 import { useState, useEffect } from "react";
-import { Product } from "../types";
+import { Product, Review } from "../types";
 import { formatCurrency, getCategoryIcon, injectProductSchema, scrollToTop } from "../utils";
 import { ArrowLeft, ShoppingCart, ShieldCheck, HelpCircle, Leaf, Sparkles, Check, Droplet, Flame, Lock } from "lucide-react";
 import { motion } from "motion/react";
 
 interface ProductViewProps {
   product: Product;
+  reviews: Review[];
   onBack: () => void;
   onAddToCart: (product: Product, quantity: number) => void;
 }
 
-export default function ProductView({ product, onBack, onAddToCart }: ProductViewProps) {
+export default function ProductView({ product, reviews, onBack, onAddToCart }: ProductViewProps) {
   const [quantity, setQuantity] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<"descricao" | "beneficios" | "especificacoes">("descricao");
   const [addedFeedback, setAddedFeedback] = useState<boolean>(false);
 
   // Injetar dados estruturados Schema.org para o Google na montagem deste produto
   useEffect(() => {
-    injectProductSchema(product);
+    injectProductSchema(product, reviews);
     scrollToTop();
-  }, [product]);
+  }, [product, reviews]);
 
   const isOutOfStock = product.stock === 0;
   const isLowStock = product.stock > 0 && product.stock < 5;

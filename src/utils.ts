@@ -1,4 +1,4 @@
-import { Product } from "./types";
+import { Product, Review } from "./types";
 import { Droplet, Flame, Waves, Package, type LucideIcon } from "lucide-react";
 
 export const PRODUCT_CATEGORIES = ["Sabonetes", "Bálsamos", "Velas", "Sais", "Outros"];
@@ -52,7 +52,7 @@ export function getCategoryIcon(category: string): LucideIcon {
  * Injeta dinamicamente dados estruturados do Schema.org (Product) no cabeçalho
  * para SEO avançado, permitindo que robôs de busca exibam estrelas e preços diretamente.
  */
-export function injectProductSchema(product: Product) {
+export function injectProductSchema(product: Product, reviews: Review[] = []) {
   // Remover qualquer schema existente injetado anteriormente
   const existingScript = document.getElementById("product-schema-ld");
   if (existingScript) {
@@ -61,7 +61,7 @@ export function injectProductSchema(product: Product) {
 
   const price = product.promoPrice || product.price;
 
-  const schema = {
+  const schema: Record<string, unknown> = {
     "@context": "https://schema.org/",
     "@type": "Product",
     "name": product.name,
@@ -75,7 +75,7 @@ export function injectProductSchema(product: Product) {
     },
     "offers": {
       "@type": "Offer",
-      "url": `${window.location.origin}/#produto/${product.slug}`,
+      "url": `${window.location.origin}/produto/${product.slug}`,
       "priceCurrency": "BRL",
       "price": price.toFixed(2),
       "priceValidUntil": "2027-12-31",
@@ -85,13 +85,21 @@ export function injectProductSchema(product: Product) {
         "@type": "Organization",
         "name": "Beerlanda"
       }
-    },
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": "4.9",
-      "reviewCount": "24"
     }
   };
+
+  // O Google penaliza aggregateRating com dado inventado — só inclui quando há
+  // avaliações reais. As avaliações da Beerlanda não são vinculadas a um produto
+  // específico, então a nota reflete a satisfação geral da loja (todas as
+  // avaliações ativas), não um recorte fictício por item.
+  if (reviews.length > 0) {
+    const sum = reviews.reduce((acc, r) => acc + r.rating, 0);
+    schema.aggregateRating = {
+      "@type": "AggregateRating",
+      "ratingValue": (sum / reviews.length).toFixed(1),
+      "reviewCount": String(reviews.length)
+    };
+  }
 
   const script = document.createElement("script");
   script.id = "product-schema-ld";

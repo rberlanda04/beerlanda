@@ -119,7 +119,14 @@ export default function App() {
   // --- ROTEADOR BASEADO EM HASH (Excelente para iframes) ---
   useEffect(() => {
     function handleHashChange() {
-      const hash = window.location.hash;
+      // Links de produto compartilhados (sitemap, WhatsApp, Instagram) usam
+      // caminho real (/produto/slug) pra ter meta tags corretas no SSR — se
+      // não há hash, mas a URL já chegou nesse caminho, trata como se fosse.
+      let hash = window.location.hash;
+      if (!hash) {
+        const pathMatch = window.location.pathname.match(/^\/produto\/([^/]+)\/?$/);
+        if (pathMatch) hash = `#produto/${pathMatch[1]}`;
+      }
 
       if (hash.startsWith("#produto/")) {
         const slug = hash.replace("#produto/", "");
@@ -270,6 +277,7 @@ export default function App() {
             >
               <ProductView
                 product={selectedProduct}
+                reviews={reviews}
                 onBack={navigateToHome}
                 onAddToCart={handleAddToCart}
               />
