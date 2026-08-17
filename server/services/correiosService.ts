@@ -5,6 +5,8 @@
 // tenta as variações mais comuns documentadas — se a resposta real vier em outro
 // formato, é o único ponto a ajustar, sem impacto no resto do sistema.
 
+import { getValidCorreiosToken } from "./correiosAuthService";
+
 const CORREIOS_BASE_URL = "https://api.correios.com.br";
 const PAC_CODE = "03298";
 const SEDEX_CODE = "03220";
@@ -59,6 +61,36 @@ function parseServiceResponse(data: any, serviceCode: string): ShippingOption {
   return { price, days: Number.isNaN(days) ? 0 : days };
 }
 
+async function callCorreiosPricing(
+  serviceCode: string,
+  destinationCep: string,
+  weightGrams: number,
+  dims: PackageDimensions,
+  token: string
+): Promise<Response> {
+  const apiKey = process.env.CORREIOS_API_KEY;
+  const originCep = process.env.CORREIOS_ORIGIN_CEP;
+
+  const url = `${CORREIOS_BASE_URL}/preco/v1/nacional/${serviceCode}`;
+
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Api-Key": apiKey!,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      cepOrigem: originCep!.replace(/\D/g, ""),
+      cepDestino: destinationCep.replace(/\D/g, ""),
+      psObjeto: weightGrams,
+      comprimento: dims.comprimento,
+      largura: dims.largura,
+      altura: dims.altura
+    })
+  });
+}
+
 async function fetchServicePrice(
   serviceCode: string,
   destinationCep: string,
@@ -66,35 +98,30 @@ async function fetchServicePrice(
   dims: PackageDimensions
 ): Promise<ShippingOption> {
   const apiKey = process.env.CORREIOS_API_KEY;
-  const token = process.env.CORREIOS_TOKEN;
   const originCep = process.env.CORREIOS_ORIGIN_CEP;
 
-  if (!apiKey || !token || !originCep) {
-    throw new Error("Credenciais dos Correios não configuradas (CORREIOS_API_KEY / CORREIOS_TOKEN / CORREIOS_ORIGIN_CEP).");
+  if (!apiKey || !originCep) {
+    throw new Error("Credenciais dos Correios não configuradas (CORREIOS_API_KEY / CORREIOS_ORIGIN_CEP).");
   }
 
-  const url = `${CORREIOS_BASE_URL}/preco/v1/nacional/${serviceCode}`;
+  let token = await getValidCorreiosToken();
 
   let response: Response;
   try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "X-Api-Key": apiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        cepOrigem: originCep.replace(/\D/g, ""),
-        cepDestino: destinationCep.replace(/\D/g, ""),
-        psObjeto: weightGrams,
-        comprimento: dims.comprimento,
-        largura: dims.largura,
-        altura: dims.altura
-      })
-    });
+    response = await callCorreiosPricing(serviceCode, destinationCep, weightGrams, dims, token);
   } catch (error: any) {
     throw new Error(`Falha de conexão com a API dos Correios: ${error.message}`);
+  }
+
+  // Token pode ter sido revogado ou o cache local ficou dessincronizado do
+  // servidor — força uma renovação e tenta mais uma vez antes de desistir.
+  if (response.status === 401) {
+    token = await getValidCorreiosToken(true);
+    try {
+      response = await callCorreiosPricing(serviceCode, destinationCep, weightGrams, dims, token);
+    } catch (error: any) {
+      throw new Error(`Falha de conexão com a API dos Correios: ${error.message}`);
+    }
   }
 
   if (!response.ok) {
