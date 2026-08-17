@@ -230,10 +230,16 @@ function currentMonthKey(): string {
   return new Date().toISOString().slice(0, 7); // YYYY-MM
 }
 
-function subscriptionBaseUrl(req: any): string {
-  return process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL"
-    ? process.env.APP_URL.replace(/\/$/, "")
-    : `${req.protocol}://${req.get("host")}`;
+// Normaliza APP_URL: garante esquema (https://) e sem barra final. Sem isso,
+// um valor tipo "beerlanda.com.br" (sem "https://") quebra as back_urls
+// enviadas pro Mercado Pago e as URLs absolutas do sitemap/robots.txt.
+function resolveAppBaseUrl(req: any): string {
+  const raw = process.env.APP_URL;
+  if (raw && raw !== "MY_APP_URL") {
+    const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return withScheme.replace(/\/$/, "");
+  }
+  return `${req.protocol}://${req.get("host")}`;
 }
 
 // Prévia pública do mês corrente: só tema/história quando o admin marcar como
@@ -567,7 +573,7 @@ router.post("/api/admin/subscription-plans/setup", adminLimiter, requireAdmin, a
       return res.json({ success: true, alreadyConfigured: true, config: existing });
     }
 
-    const baseUrl = `${subscriptionBaseUrl(req)}/#clube`;
+    const baseUrl = `${resolveAppBaseUrl(req)}/#clube`;
 
     const essencial = existing.essencialPlanId
       ? { id: existing.essencialPlanId }
@@ -822,9 +828,7 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     console.error("[Firestore] Erro ao gravar pedido:", e);
   }
 
-  const baseUrl = process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL"
-    ? process.env.APP_URL.replace(/\/$/, "")
-    : `${req.protocol}://${req.get("host")}`;
+  const baseUrl = resolveAppBaseUrl(req);
 
   const preferenceItems = items.map((item: any) => ({
     title: item.product.name,
@@ -928,9 +932,7 @@ router.post("/api/webhooks/mercadopago", async (req, res) => {
 // Robots.txt
 router.get("/robots.txt", (req, res) => {
   res.type("text/plain");
-  const sitemapUrl = process.env.APP_URL 
-    ? `${process.env.APP_URL.replace(/\/$/, "")}/sitemap.xml` 
-    : "https://beerlanda.com.br/sitemap.xml";
+  const sitemapUrl = `${resolveAppBaseUrl(req)}/sitemap.xml`;
 
   res.send(
     `User-agent: *\n` +
@@ -947,9 +949,7 @@ router.get("/sitemap.xml", async (req, res) => {
     const products = await getProductsFromSheet();
     const activeProducts = products.filter(p => p.active);
     
-    const baseUrl = process.env.APP_URL 
-      ? process.env.APP_URL.replace(/\/$/, "")
-      : "https://beerlanda.com.br";
+    const baseUrl = resolveAppBaseUrl(req);
 
     res.type("application/xml");
 
