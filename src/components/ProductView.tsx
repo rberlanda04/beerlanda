@@ -13,7 +13,7 @@ interface ProductViewProps {
 
 export default function ProductView({ product, reviews, onBack, onAddToCart }: ProductViewProps) {
   const [quantity, setQuantity] = useState<number>(1);
-  const [activeTab, setActiveTab] = useState<"descricao" | "beneficios" | "especificacoes">("descricao");
+  const [activeTab, setActiveTab] = useState<"descricao" | "composicao">("descricao");
   const [addedFeedback, setAddedFeedback] = useState<boolean>(false);
 
   // Injetar dados estruturados Schema.org para o Google na montagem deste produto
@@ -47,62 +47,6 @@ export default function ProductView({ product, reviews, onBack, onAddToCart }: P
     setTimeout(() => {
       setAddedFeedback(false);
     }, 2000);
-  };
-
-  const getCustomBenefits = () => {
-    const nameLower = product.name.toLowerCase();
-    const benefitsList: string[] = [];
-
-    if (nameLower.includes("laranja doce") || nameLower.includes("laranja")) {
-      benefitsList.push(
-        "Óleo Essencial de Laranja Doce: Traz as propriedades antioxidantes, a energia revigorante e o perfume maravilhoso do óleo essencial de laranja doce na composição."
-      );
-    }
-    
-    if (nameLower.includes("aveia")) {
-      benefitsList.push(
-        "Aveia Natural: Possui propriedades hidratantes, calmantes, antioxidantes, cicatrizantes e anti-inflamatórias fornecidas pela aveia e mel."
-      );
-    }
-
-    if (nameLower.includes("karité") || nameLower.includes("karite")) {
-      if (nameLower.includes("mel")) {
-        benefitsList.push(
-          "Mel & Manteiga de Karité: A combinação de mel e manteiga de Karité torna esse sabonete muito poderoso! Oferece hidratação profunda e regeneradora, ação antibacteriana e calmante."
-        );
-      } else {
-        benefitsList.push(
-          "Manteiga de Karité: É um poderoso hidratante natural e regenerador, rico em vitaminas A, E e F, além de ácidos graxos, que proporcionam hidratação profunda, ação anti-inflamatória e antioxidante."
-        );
-      }
-    } else if (nameLower.includes("mel")) {
-      benefitsList.push(
-        "Mel Puro: O mel é um poderoso aliado para a pele, oferece hidratação profunda, ação antibacteriana, cicatrizante e propriedades calmantes. É rico em antioxidantes, combate o envelhecimento precoce, estimula o colágeno e suaviza a textura da pele."
-      );
-    }
-
-    if (nameLower.includes("própolis") || nameLower.includes("propolis")) {
-      benefitsList.push(
-        "Própolis Verde: Excepcional ação cicatrizante, regeneradora, antimicrobiana e anti-inflamatória para reequilibrar a derme."
-      );
-    }
-
-    // Default benefits if list is empty
-    if (benefitsList.length === 0) {
-      benefitsList.push(
-        "Ativo natural concentrado com propriedades curativas cientificamente estudadas.",
-        "Produto artesanal, envasado a frio para manter todas as enzimas e flavonoides naturais ativos.",
-        "Sustentável e cruelty-free: zero uso de agrotóxicos ou estresse desnecessário às colmeias.",
-        "Apoio direto a apicultores tradicionais da agricultura familiar do interior de São Paulo."
-      );
-    } else {
-      benefitsList.push(
-        "Feito artesanalmente com ingredientes nobres e bioativos reais obtidos de forma ética.",
-        "Livre de parabenos, petrolatos, corantes sintéticos ou espumantes industriais nocivos."
-      );
-    }
-
-    return benefitsList;
   };
 
   return (
@@ -233,24 +177,14 @@ export default function ProductView({ product, reviews, onBack, onAddToCart }: P
                   Descrição
                 </button>
                 <button
-                  onClick={() => setActiveTab("beneficios")}
+                  onClick={() => setActiveTab("composicao")}
                   className={`border-b-2 pb-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                    activeTab === "beneficios"
+                    activeTab === "composicao"
                       ? "border-natural-gold text-natural-darkbrown"
                       : "border-transparent text-natural-text/40 hover:text-natural-darkbrown"
                   }`}
                 >
-                  Benefícios
-                </button>
-                <button
-                  onClick={() => setActiveTab("especificacoes")}
-                  className={`border-b-2 pb-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                    activeTab === "especificacoes"
-                      ? "border-natural-gold text-natural-darkbrown"
-                      : "border-transparent text-natural-text/40 hover:text-natural-darkbrown"
-                  }`}
-                >
-                  Pureza & Conservação
+                  Composição
                 </button>
               </div>
             </div>
@@ -292,14 +226,7 @@ export default function ProductView({ product, reviews, onBack, onAddToCart }: P
                   <p>{product.description}</p>
                 )
               )}
-              {activeTab === "beneficios" && (
-                <ul className="list-disc pl-4 space-y-1.5">
-                  {getCustomBenefits().map((benefit, idx) => (
-                    <li key={idx}>{benefit}</li>
-                  ))}
-                </ul>
-              )}
-              {activeTab === "especificacoes" && (
+              {activeTab === "composicao" && (
                 <div className="space-y-1.5">
                   <p><strong>Ingredientes:</strong> Base de óleos vegetais nobres saponificados, enriquecido com {product.name.toLowerCase().includes("mel") ? "Mel de abelha silvestre" : "bioativos naturais de alta pureza"}, óleos essenciais puros e extrato de própolis/cera conforme a formulação.</p>
                   <p><strong>Armazenamento:</strong> Conservar em saboneteira seca ou local fresco e ao abrigo da umidade excessiva e luz solar direta.</p>
