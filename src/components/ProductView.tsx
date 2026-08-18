@@ -311,7 +311,7 @@ export default function ProductView({ product, reviews, onBack, onAddToCart }: P
             <div className="mt-4 flex justify-between text-[11px] text-natural-text/40">
               <span className="flex items-center gap-1">
                 <Leaf className="h-3 w-3" />
-                Produção Sustentável Certificada
+                Produção Sustentável
               </span>
               <span className="flex items-center gap-1">
                 <Lock className="h-3 w-3" />
