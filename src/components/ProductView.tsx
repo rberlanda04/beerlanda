@@ -121,7 +121,7 @@ export default function ProductView({ product, reviews, onBack, onAddToCart }: P
               </span>
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-natural-organic">
                 <Leaf className="h-3.5 w-3.5 fill-natural-organic/10" />
-                100% Orgânico Certificado
+                Natural e Hipoalergênico
               </span>
             </div>
 
