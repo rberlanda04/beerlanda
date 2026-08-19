@@ -11,6 +11,7 @@ interface AdminProductsProps {
 interface ProductFormState {
   name: string;
   description: string;
+  composition: string;
   price: string;
   promoPrice: string;
   stock: string;
@@ -23,6 +24,7 @@ interface ProductFormState {
 const EMPTY_FORM: ProductFormState = {
   name: "",
   description: "",
+  composition: "",
   price: "",
   promoPrice: "",
   stock: "",
@@ -76,6 +78,7 @@ export default function AdminProducts({ token }: AdminProductsProps) {
     setForm({
       name: p.name,
       description: p.description,
+      composition: p.composition || "",
       price: String(p.price),
       promoPrice: p.promoPrice !== undefined ? String(p.promoPrice) : "",
       stock: String(p.stock),
@@ -118,6 +121,7 @@ export default function AdminProducts({ token }: AdminProductsProps) {
     const body = {
       name: form.name.trim(),
       description: form.description.trim(),
+      composition: form.composition.trim(),
       price: form.price,
       promoPrice: form.promoPrice,
       stock: form.stock,
@@ -296,6 +300,17 @@ export default function AdminProducts({ token }: AdminProductsProps) {
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   rows={3}
+                  className="w-full rounded-lg border border-natural-border px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold block mb-1">Composição</label>
+                <textarea
+                  value={form.composition}
+                  onChange={(e) => setForm({ ...form, composition: e.target.value })}
+                  rows={3}
+                  placeholder="Ex: Ingredientes, modo de conservação, dica de uso..."
                   className="w-full rounded-lg border border-natural-border px-3 py-2 text-xs"
                 />
               </div>

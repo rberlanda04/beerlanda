@@ -227,11 +227,15 @@ export default function ProductView({ product, reviews, onBack, onAddToCart }: P
                 )
               )}
               {activeTab === "composicao" && (
-                <div className="space-y-1.5">
-                  <p><strong>Ingredientes:</strong> Base de óleos vegetais nobres saponificados, enriquecido com {product.name.toLowerCase().includes("mel") ? "Mel de abelha silvestre" : "bioativos naturais de alta pureza"}, óleos essenciais puros e extrato de própolis/cera conforme a formulação.</p>
-                  <p><strong>Armazenamento:</strong> Conservar em saboneteira seca ou local fresco e ao abrigo da umidade excessiva e luz solar direta.</p>
-                  <p><strong>Dica de Uso:</strong> Use bucha vegetal para potencializar a esfoliação natural e ativar a microcirculação da pele.</p>
-                </div>
+                product.composition ? (
+                  <p className="whitespace-pre-line">{product.composition}</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p><strong>Ingredientes:</strong> Base de óleos vegetais nobres saponificados, enriquecido com {product.name.toLowerCase().includes("mel") ? "Mel de abelha silvestre" : "bioativos naturais de alta pureza"}, óleos essenciais puros e extrato de própolis/cera conforme a formulação.</p>
+                    <p><strong>Armazenamento:</strong> Conservar em saboneteira seca ou local fresco e ao abrigo da umidade excessiva e luz solar direta.</p>
+                    <p><strong>Dica de Uso:</strong> Use bucha vegetal para potencializar a esfoliação natural e ativar a microcirculação da pele.</p>
+                  </div>
+                )
               )}
             </div>
           </div>

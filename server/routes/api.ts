@@ -455,6 +455,7 @@ function parseProductBody(body: any) {
   return {
     name,
     description: String(body.description || ""),
+    composition: String(body.composition || ""),
     price: Number(body.price) || 0,
     promoPrice: body.promoPrice !== undefined && body.promoPrice !== "" ? Number(body.promoPrice) : undefined,
     imageUrl: String(body.imageUrl || ""),

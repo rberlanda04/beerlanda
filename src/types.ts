@@ -2,6 +2,7 @@ export interface Product {
   id: string;
   name: string;
   description: string;
+  composition?: string;
   price: number;
   promoPrice?: number;
   imageUrl: string;
