@@ -1,6 +1,6 @@
 import { initializeApp, getApps, applicationDefault, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats, AnalyticsData, Subscriber, SubscriptionTier, MonthlyCollection, SubscriptionConfig } from "../../src/types";
+import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats, AnalyticsData, Subscriber, SubscriptionTier, MonthlyCollection, SubscriptionConfig, Review } from "../../src/types";
 import { randomUUID } from "crypto";
 import { getServiceAccountCredentials } from "./gcpCredentials";
 
@@ -35,20 +35,8 @@ const db = getFirestore();
 db.settings({ ignoreUndefinedProperties: true });
 
 // -------------------------------------------------------------
-// PRODUTOS (espelho da planilha — planilha continua sendo a fonte editável)
+// PRODUTOS (Firestore é a fonte de dados — gerenciados direto pelo portal admin)
 // -------------------------------------------------------------
-async function syncProductsToFirestore(products: Product[]): Promise<number> {
-  if (products.length === 0) return 0;
-  const batch = db.batch();
-  const col = db.collection("products");
-  const now = new Date().toISOString();
-  for (const p of products) {
-    batch.set(col.doc(p.id), { ...p, updatedAt: now }, { merge: true });
-  }
-  await batch.commit();
-  return products.length;
-}
-
 async function setProductInFirestore(product: Product): Promise<void> {
   await db.collection("products").doc(product.id).set({ ...product, updatedAt: new Date().toISOString() }, { merge: true });
 }
@@ -87,18 +75,6 @@ async function getOrdersFromFirestore(limit = 200): Promise<Order[]> {
   return snap.docs.map((d) => d.data() as Order);
 }
 
-// Pedidos ainda não replicados na aba "vendas" da planilha real (lida em
-// memória, não via query .where — Firestore "!=" ignora documentos sem o
-// campo, o que excluiria justamente os pedidos nunca sincronizados).
-async function getUnsyncedOrders(): Promise<Order[]> {
-  const snap = await db.collection("orders").get();
-  return snap.docs.map((d) => d.data() as Order & { syncedToSheet?: boolean }).filter((o) => !o.syncedToSheet);
-}
-
-async function markOrderSynced(orderId: string): Promise<void> {
-  await db.collection("orders").doc(orderId).set({ syncedToSheet: true }, { merge: true });
-}
-
 async function saveCustomer(customer: Omit<Customer, "lastOrderAt" | "createdAt">): Promise<void> {
   const id = customer.phone.replace(/\D/g, "") || customer.email.toLowerCase();
   if (!id) return;
@@ -119,17 +95,6 @@ async function getCustomersFromFirestore(): Promise<Customer[]> {
   return snap.docs.map((d) => d.data() as Customer);
 }
 
-async function getUnsyncedCustomers(): Promise<{ id: string; customer: Customer }[]> {
-  const snap = await db.collection("customers").get();
-  return snap.docs
-    .filter((d) => !d.data().syncedToSheet)
-    .map((d) => ({ id: d.id, customer: d.data() as Customer }));
-}
-
-async function markCustomerSynced(id: string): Promise<void> {
-  await db.collection("customers").doc(id).set({ syncedToSheet: true }, { merge: true });
-}
-
 // -------------------------------------------------------------
 // MENSAGENS DE CONTATO (substitui o contato via WhatsApp)
 // -------------------------------------------------------------
@@ -146,15 +111,26 @@ async function markMessageRead(id: string): Promise<void> {
   await db.collection("messages").doc(id).set({ read: true }, { merge: true });
 }
 
-async function getUnsyncedMessages(): Promise<ContactMessage[]> {
-  const snap = await db.collection("messages").get();
-  return snap.docs
-    .filter((d) => !d.data().syncedToSheet)
-    .map((d) => ({ id: d.id, ...d.data() }) as ContactMessage);
+// -------------------------------------------------------------
+// AVALIAÇÕES (gerenciadas direto pelo portal admin)
+// -------------------------------------------------------------
+async function getReviewsFromFirestore(): Promise<Review[] | null> {
+  try {
+    const snap = await db.collection("reviews").get();
+    if (snap.empty) return null;
+    return snap.docs.map((d) => d.data() as Review);
+  } catch (error) {
+    console.error("[Firestore] Erro ao ler avaliações:", error);
+    return null;
+  }
 }
 
-async function markMessageSynced(id: string): Promise<void> {
-  await db.collection("messages").doc(id).set({ syncedToSheet: true }, { merge: true });
+async function setReviewInFirestore(review: Review): Promise<void> {
+  await db.collection("reviews").doc(review.id).set(review, { merge: true });
+}
+
+async function deleteReviewFromFirestore(id: string): Promise<void> {
+  await db.collection("reviews").doc(id).delete();
 }
 
 // -------------------------------------------------------------
@@ -342,10 +318,11 @@ async function saveSubscriptionConfig(config: SubscriptionConfig): Promise<void>
 }
 
 export {
-  syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
-  saveOrder, updateOrderPayment, getOrdersFromFirestore, getUnsyncedOrders, markOrderSynced,
-  saveCustomer, getCustomersFromFirestore, getUnsyncedCustomers, markCustomerSynced,
-  saveMessage, getMessagesFromFirestore, markMessageRead, getUnsyncedMessages, markMessageSynced,
+  setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
+  saveOrder, updateOrderPayment, getOrdersFromFirestore,
+  saveCustomer, getCustomersFromFirestore,
+  saveMessage, getMessagesFromFirestore, markMessageRead,
+  getReviewsFromFirestore, setReviewInFirestore, deleteReviewFromFirestore,
   getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
   getDashboardStats, getAnalyticsData,
   saveSubscriber, setSubscriberPreapproval, updateSubscriberStatusById, getSubscribersFromFirestore, getInterestedCount, getCategoryVotes,

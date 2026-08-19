@@ -1,26 +1,36 @@
 # Beerlanda
 
-E-commerce de produtos artesanais (sabonetes, velas, bálsamos e itens de bem-estar), com catálogo, cupons e avaliações sincronizados a partir de uma planilha Google Sheets, checkout via WhatsApp e assistente com Gemini AI.
+E-commerce de produtos artesanais (sabonetes, bálsamos, velas e sais), com catálogo, cupons, avaliações e
+o Clube da Colmeia (assinatura recorrente) — checkout via Mercado Pago (cartão e Pix) e frete calculado
+pela API dos Correios.
 
 ## Stack
 
 - **Frontend:** React 19 + Vite + TailwindCSS 4
-- **Backend:** Express (server.ts), servido junto com o Vite em dev e como middleware estático em produção
-- **Auth:** Firebase Auth (Google Sign-In) com escopos de `spreadsheets` e `drive` — usado para operações de admin que escrevem na planilha/Drive
-- **Dados:** Google Sheets API (leitura pública via API key, escrita via OAuth do usuário admin) + Google Drive API (imagens dos produtos)
-- **IA:** Gemini API (`@google/genai`)
+- **Backend:** Express (`server.ts`), servido junto com o Vite em dev e como middleware estático em produção
+- **Dados:** Firestore (Firebase Admin SDK) — única fonte de dados de produtos, cupons, avaliações, pedidos, clientes, assinantes e mensagens
+- **Auth admin:** Firebase Auth (Google Sign-In); o portal `/admin` só libera acesso a e-mails listados em `ADMIN_EMAILS`
+- **Pagamento:** Mercado Pago (Checkout Pro para compra avulsa, PreApproval para assinaturas recorrentes)
+- **Frete:** API REST dos Correios, com renovação automática de token
+- **Imagens:** Google Cloud Storage
 - **Deploy:** Google Cloud Run (ver `Dockerfile`), build via Cloud Build
 
 ## Estrutura
 
 ```
-server.ts                 # bootstrap do Express + Vite middleware
-server/routes/api.ts       # endpoints REST (produtos, cupons, avaliações, checkout, admin)
-server/services/googleService.ts  # leitura/escrita no Google Sheets e Drive
-server/data/mock.ts        # dados de fallback quando o Sheets não responde
-src/                        # frontend React
-src/lib/googleAuth.ts       # sign-in Google (Firebase Auth) para o painel admin
-google-apps-script/Code.gs  # script auxiliar rodado dentro da planilha (sincronizar fotos do Drive)
+server.ts                              # bootstrap do Express + Vite middleware
+server/routes/api.ts                    # endpoints REST (produtos, cupons, avaliações, checkout, admin)
+server/services/firestoreService.ts     # toda a leitura/escrita no Firestore
+server/services/googleService.ts        # autenticação admin (verifica o token Google contra ADMIN_EMAILS)
+server/services/mercadoPagoService.ts   # Checkout Pro (compra avulsa)
+server/services/mercadoPagoSubscriptionService.ts  # PreApproval (Clube da Colmeia)
+server/services/correiosService.ts      # cálculo de frete (PAC/SEDEX)
+server/services/correiosAuthService.ts  # renovação automática do token Bearer dos Correios
+server/services/storageService.ts       # upload de imagens de produto pro Cloud Storage
+server/data/mock.ts                     # dados de fallback só usados se o Firestore estiver vazio
+src/                                     # frontend React
+src/components/admin/                   # portal administrativo (produtos, pedidos, cupons, avaliações, Clube)
+src/lib/googleAuth.ts                   # sign-in Google (Firebase Auth) para o painel admin
 ```
 
 ## Configuração local
@@ -29,7 +39,8 @@ google-apps-script/Code.gs  # script auxiliar rodado dentro da planilha (sincron
    ```
    npm install
    ```
-2. Copie `.env.example` para `.env` e preencha com os valores reais (chave do Gemini, ID da planilha do Google Sheets, ID da pasta do Drive, API key do Google Cloud, telefone/e-mail de contato). **Nunca commite o `.env`.**
+2. Copie `.env.example` para `.env` e preencha com os valores reais (credenciais do Mercado Pago, dos
+   Correios, bucket do Cloud Storage, e-mails de admin). **Nunca commite o `.env`.**
 3. Ajuste `firebase-applet-config.json` se for usar um projeto Firebase diferente do padrão.
 4. Rode o servidor de desenvolvimento:
    ```
@@ -43,27 +54,36 @@ google-apps-script/Code.gs  # script auxiliar rodado dentro da planilha (sincron
 - `npm start` — roda o build de produção (`dist/server.cjs`)
 - `npm run lint` — checagem de tipos (`tsc --noEmit`)
 
-## Integração com Google Sheets
+## Dados (Firestore)
 
-- Leitura de produtos/cupons/avaliações funciona sem login, usando `GOOGLE_API_KEY` (somente leitura).
-- Escrita (sincronizar planilha, renomear arquivos no Drive) exige login Google via `src/lib/googleAuth.ts`, que solicita os escopos `spreadsheets` e `drive` e usa o `accessToken` OAuth retornado pelo Firebase Auth como Bearer token nas chamadas às APIs do Google.
+Produtos, cupons, avaliações, pedidos, clientes, assinantes do Clube da Colmeia e mensagens de contato
+vivem só no Firestore — gerenciados direto pelo portal `/admin`. Não há mais nenhuma dependência de
+planilha externa: o admin cria/edita tudo pela própria interface, incluindo upload de imagem de produto.
 
 ## Deploy (Google Cloud Run)
 
 ```
 gcloud run deploy beerlanda --source . --region <region> --allow-unauthenticated \
-  --set-env-vars ADMIN_EMAILS="...",WHATSAPP_PHONE="...",CONTACT_EMAIL="...",GOOGLE_SHEET_ID="...",GOOGLE_DRIVE_FOLDER_ID="..." \
-  --set-secrets GOOGLE_API_KEY=GOOGLE_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest
+  --set-env-vars ADMIN_EMAILS="...",CONTACT_EMAIL="...",CORREIOS_ORIGIN_CEP="...",CORREIOS_USER_ID="..." \
+  --set-secrets MERCADOPAGO_ACCESS_TOKEN=MERCADOPAGO_ACCESS_TOKEN:latest,CORREIOS_API_KEY=CORREIOS_API_KEY:latest
 ```
 
-O `Dockerfile` builda o frontend (Vite) e o servidor (esbuild) e serve tudo via Express; Cloud Build cuida do build a partir do código-fonte, sem precisar de Docker local. Depois do primeiro deploy, um domínio customizado pode ser mapeado com `gcloud run domain-mappings create`, que gera o registro DNS (CNAME/A) a configurar no provedor do domínio.
+O `Dockerfile` builda o frontend (Vite) e o servidor (esbuild) e serve tudo via Express; Cloud Build cuida
+do build a partir do código-fonte, sem precisar de Docker local. O domínio customizado é mapeado via
+Firebase Hosting (que faz proxy pro serviço do Cloud Run — ver `firebase.json`).
 
 ## Segurança da autenticação
 
-- **Allowlist de admin:** as rotas `/api/admin/*` (`server/routes/api.ts`) exigem que o token Google enviado pertença a um e-mail listado em `ADMIN_EMAILS` (`server/services/googleService.ts#isAuthorizedAdmin`). O servidor valida o token diretamente com o endpoint `tokeninfo` do Google — nunca confia no e-mail que o cliente diz ter. Sem isso, qualquer pessoa que fizesse login com sua própria conta Google poderia acionar a sincronização da planilha.
-- **Rate limiting:** `/api/checkout`, `/api/validate-coupon` e as rotas `/api/admin/*` têm limite de requisições (`express-rate-limit`) contra abuso/spam.
+- **Allowlist de admin:** as rotas `/api/admin/*` (`server/routes/api.ts`) exigem que o token Google
+  enviado pertença a um e-mail listado em `ADMIN_EMAILS`
+  (`server/services/googleService.ts#isAuthorizedAdmin`). O servidor valida o token diretamente com o
+  endpoint `tokeninfo` do Google — nunca confia no e-mail que o cliente diz ter.
+- **Rate limiting:** `/api/checkout`, `/api/validate-coupon`, `/api/shipping/calculate` e as rotas
+  `/api/admin/*` têm limite de requisições (`express-rate-limit`) contra abuso/spam.
 - **Pendências manuais (fora do escopo do código):**
-  1. Habilitar o provedor **Google** em Firebase Console → Authentication → Sign-in method, no projeto `beerlanda`, e adicionar os domínios de produção em Authorized domains (senão o `signInWithPopup` falha — provável causa do bug de login relatado).
-  2. **Rotacionar a `GOOGLE_API_KEY`** no Google Cloud Console (APIs & Services → Credentials). Essa chave esteve hardcoded no código-fonte antes da limpeza feita neste repositório; trate-a como comprometida e gere uma nova, restrita apenas às APIs do Sheets/Drive e (se possível) ao domínio de produção.
-  3. Revisar o compartilhamento da planilha e da pasta do Drive: confirme que só as contas em `ADMIN_EMAILS` têm permissão de **editor**; leitura pública "qualquer pessoa com o link" é esperada (é o que permite a `GOOGLE_API_KEY` ler sem login), mas edição pública não deveria estar habilitada.
-  4. O `accessToken` OAuth usado nas escritas expira (~1h) e não é renovado automaticamente — o admin precisa logar de novo quando expirar. Migrar a escrita para uma Service Account no backend eliminaria essa dependência de login manual; ainda não implementado.
+  1. Habilitar o provedor **Google** em Firebase Console → Authentication → Sign-in method, no projeto
+     `beerlanda`, e manter os domínios de produção em Authorized domains.
+  2. O `accessToken` OAuth usado pelo login do admin expira (~1h) e não é renovado automaticamente — a
+     conta precisa logar de novo quando expirar.
+  3. O produto de API "Preço e Prazo" dos Correios precisa estar liberado no contrato vinculado a
+     `CORREIOS_USER_ID` para o cálculo de frete funcionar — não é algo que o código controla.

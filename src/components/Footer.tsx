@@ -8,8 +8,6 @@ const INSTAGRAM_HANDLE = "beerlandaprodutosartesanais";
 interface FooterProps {
   appConfig?: {
     contactEmail: string;
-    googleSheetId: string;
-    googleDriveFolderId: string;
   };
 }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   RefreshCw, LogOut, ArrowLeft, LayoutDashboard, Package,
-  ShoppingBag, Users, Tag, Mail, Wrench, BarChart3, Gift
+  ShoppingBag, Users, Tag, Mail, Star, BarChart3, Gift
 } from "lucide-react";
 import { User } from "firebase/auth";
 import { googleSignIn, initAuth, logout } from "../lib/googleAuth";
@@ -12,10 +12,10 @@ import AdminProducts from "./admin/AdminProducts";
 import AdminOrders from "./admin/AdminOrders";
 import AdminCustomers from "./admin/AdminCustomers";
 import AdminCoupons from "./admin/AdminCoupons";
+import AdminReviews from "./admin/AdminReviews";
 import AdminMessages from "./admin/AdminMessages";
-import AdminTools from "./admin/AdminTools";
 
-type Section = "dashboard" | "analytics" | "clube" | "products" | "orders" | "customers" | "coupons" | "messages" | "tools";
+type Section = "dashboard" | "analytics" | "clube" | "products" | "orders" | "customers" | "coupons" | "reviews" | "messages";
 
 const NAV: { id: Section; label: string; Icon: any }[] = [
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
@@ -25,8 +25,8 @@ const NAV: { id: Section; label: string; Icon: any }[] = [
   { id: "orders", label: "Pedidos", Icon: ShoppingBag },
   { id: "customers", label: "Clientes", Icon: Users },
   { id: "coupons", label: "Cupons", Icon: Tag },
-  { id: "messages", label: "Mensagens", Icon: Mail },
-  { id: "tools", label: "Ferramentas", Icon: Wrench }
+  { id: "reviews", label: "Avaliações", Icon: Star },
+  { id: "messages", label: "Mensagens", Icon: Mail }
 ];
 
 export default function AdminPortal() {
@@ -90,7 +90,7 @@ export default function AdminPortal() {
           <div className="rounded-2xl border border-natural-border bg-white p-8">
             <h2 className="font-display text-lg font-bold">Portal Administrativo Beerlanda</h2>
             <p className="mt-2 text-sm text-natural-text">
-              Entre com uma conta Google autorizada para gerenciar produtos, pedidos, clientes e a planilha da Beerlanda.
+              Entre com uma conta Google autorizada para gerenciar produtos, pedidos, clientes e avaliações da Beerlanda.
             </p>
             {loginError && <p className="mt-3 text-xs text-rose-600">{loginError}</p>}
             <button
@@ -169,8 +169,8 @@ export default function AdminPortal() {
             {section === "orders" && <AdminOrders token={token} />}
             {section === "customers" && <AdminCustomers token={token} />}
             {section === "coupons" && <AdminCoupons token={token} />}
+            {section === "reviews" && <AdminReviews token={token} />}
             {section === "messages" && <AdminMessages token={token} />}
-            {section === "tools" && <AdminTools token={token} />}
           </main>
         </div>
       )}

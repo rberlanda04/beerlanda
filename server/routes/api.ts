@@ -3,20 +3,22 @@ import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import path from 'path';
 import { Order, Coupon, Subscriber, MonthlyCollection } from '../../src/types';
-import { MOCK_REVIEWS } from '../data/mock';
+import { MOCK_REVIEWS, MOCK_PRODUCTS } from '../data/mock';
 import { randomUUID } from 'crypto';
-import { fetchGoogleDriveFiles, renameDriveFile, cleanString, getProductsFromSheet, getReviewsFromSheet, writeGoogleSheetRows, appendGoogleSheetRow, isAuthorizedAdmin, upsertProductRow, deleteProductRow, backfillMissingProductPhotos, slugify } from '../services/googleService';
+import { isAuthorizedAdmin, slugify } from '../services/googleService';
 import { uploadImageBuffer } from '../services/storageService';
 import {
-  syncProductsToFirestore, setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
+  setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
   saveOrder, saveCustomer, updateOrderPayment, getOrdersFromFirestore, getCustomersFromFirestore,
-  getUnsyncedOrders, markOrderSynced, getUnsyncedCustomers, markCustomerSynced,
-  saveMessage, getMessagesFromFirestore, markMessageRead, getUnsyncedMessages, markMessageSynced,
+  saveMessage, getMessagesFromFirestore, markMessageRead,
+  getReviewsFromFirestore, setReviewInFirestore, deleteReviewFromFirestore,
   getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
   getDashboardStats, getAnalyticsData,
   saveSubscriber, updateSubscriberStatusById, getSubscribersFromFirestore, getInterestedCount, getCategoryVotes,
   getMonthlyCollection, saveMonthlyCollection, getSubscriptionConfig, saveSubscriptionConfig
 } from '../services/firestoreService';
+
+const FALLBACK_PRODUCT_IMAGE = "https://storage.googleapis.com/beerlanda-product-images/branding/bee-placeholder.svg";
 import { createPaymentPreference, getPaymentDetails } from '../services/mercadoPagoService';
 import { createSubscriptionPlan, getSubscriptionDetails } from '../services/mercadoPagoSubscriptionService';
 import { getShippingOptions, defaultWeightForCategory } from '../services/correiosService';
@@ -29,7 +31,7 @@ function getRequestToken(req: any): string | undefined {
 
 // Only lets requests through whose Google account is on the ADMIN_EMAILS
 // allowlist — without this, any signed-in Google user could trigger writes
-// to the store's Sheet/Drive via these endpoints.
+// to the store's data (products, coupons, reviews...) via these endpoints.
 async function requireAdmin(req: any, res: any, next: any) {
   const token = getRequestToken(req);
   if (!token) {
@@ -78,8 +80,6 @@ const adminLimiter = rateLimit({
 router.get("/api/config", (req, res) => {
   res.json({
     contactEmail: process.env.CONTACT_EMAIL || "beerlandaprodutosartesanais@gmail.com",
-    googleSheetId: process.env.GOOGLE_SHEET_ID,
-    googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID,
     mercadoPagoPublicKey: process.env.MERCADOPAGO_PUBLIC_KEY || ""
   });
 });
@@ -100,15 +100,11 @@ router.post("/api/contact", publicWriteLimiter, async (req, res) => {
 });
 
 // 1. Listar Produtos Ativos
-// Lê do espelho no Firestore (rápido, sem bater na API do Sheets a cada
-// visita); se ainda não houver espelho (primeira execução), cai pra planilha.
+// Firestore é a fonte de dados; cai pro catálogo de exemplo só se o Firestore
+// estiver mesmo vazio (loja recém-criada, antes do primeiro produto cadastrado).
 router.get("/api/products", async (req, res) => {
   try {
-    let products = await getProductsFromFirestore();
-    if (!products) {
-      const token = getRequestToken(req);
-      products = await getProductsFromSheet(token);
-    }
+    const products = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
     const activeProducts = products.filter(p => p.active);
     res.json(activeProducts);
   } catch (error) {
@@ -123,11 +119,7 @@ const FAVORITES_CATEGORY_FALLBACK = ["Sabonetes", "Bálsamos", "Velas", "Sais", 
 
 router.get("/api/favorites", async (req, res) => {
   try {
-    let products = await getProductsFromFirestore();
-    if (!products) {
-      const token = getRequestToken(req);
-      products = await getProductsFromSheet(token);
-    }
+    const products = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
     const activeProducts = products.filter(p => p.active && p.stock > 0);
 
     const votes = await getCategoryVotes();
@@ -162,8 +154,7 @@ router.get("/api/favorites", async (req, res) => {
 // 2. Listar Avaliações Ativas (Prova Social)
 router.get("/api/reviews", async (req, res) => {
   try {
-    const token = getRequestToken(req);
-    const reviews = await getReviewsFromSheet(token);
+    const reviews = (await getReviewsFromFirestore()) || MOCK_REVIEWS;
     const activeReviews = reviews.filter(r => r.active);
     res.json(activeReviews);
   } catch (error) {
@@ -203,13 +194,10 @@ router.post("/api/shipping/calculate", shippingLimiter, async (req, res) => {
   }
 
   try {
-    let products = await getProductsFromFirestore();
-    if (!products) {
-      products = await getProductsFromSheet();
-    }
+    const products = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
 
     const totalWeightGrams = items.reduce((sum: number, item: any) => {
-      const product = products!.find(p => p.id === item.productId);
+      const product = products.find(p => p.id === item.productId);
       const weight = product?.weightGrams ?? defaultWeightForCategory(product?.category || "");
       return sum + weight * (Number(item.quantity) || 1);
     }, 0);
@@ -301,137 +289,7 @@ router.get("/api/clube/interesse-count", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// ENDPOINTS DO PAINEL ADMIN (Sincronização e Organização)
-// -------------------------------------------------------------
-
-// Listar arquivos do Drive da pasta
-router.get("/api/admin/drive-files", adminLimiter, requireAdmin, async (req, res) => {
-  try {
-    const token = getRequestToken(req);
-    const files = await fetchGoogleDriveFiles(token);
-    res.json({ success: true, files });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Renomear arquivos no Google Drive correspondentes à base de produtos
-router.post("/api/admin/rename-files", adminLimiter, requireAdmin, async (req, res) => {
-  try {
-    const token = getRequestToken(req);
-
-    const driveFiles = await fetchGoogleDriveFiles(token);
-    if (!driveFiles || driveFiles.length === 0) {
-      return res.status(400).json({ error: "Nenhum arquivo encontrado na pasta do Drive." });
-    }
-
-    const report: any[] = [];
-    let renamedCount = 0;
-    const products = await getProductsFromSheet(token);
-
-    for (const product of products) {
-      const cleanedName = cleanString(product.name);
-      let matchedFile: any = null;
-
-      // 1. Tenta correspondência exata desconsiderando caracteres especiais
-      for (const file of driveFiles) {
-        const cleanedFileName = cleanString(file.name.replace(/\.[^/.]+$/, ""));
-        if (cleanedFileName === cleanedName) {
-          matchedFile = file;
-          break;
-        }
-      }
-
-      // 2. Tenta correspondência parcial
-      if (!matchedFile) {
-        for (const file of driveFiles) {
-          const cleanedFileName = cleanString(file.name.replace(/\.[^/.]+$/, ""));
-          if (cleanedName.includes(cleanedFileName) || cleanedFileName.includes(cleanedName)) {
-            matchedFile = file;
-            break;
-          }
-        }
-      }
-
-      // 3. Tenta correspondência por palavras-chave
-      if (!matchedFile) {
-        const words = product.name.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-        for (const file of driveFiles) {
-          const fileLower = file.name.toLowerCase();
-          const hasWord = words.some(word => fileLower.includes(word));
-          if (hasWord) {
-            matchedFile = file;
-            break;
-          }
-        }
-      }
-
-      if (matchedFile) {
-        const extension = matchedFile.name.split(".").pop() || "jpg";
-        const targetName = `${product.name}.${extension}`;
-
-        if (matchedFile.name !== targetName) {
-          const success = await renameDriveFile(matchedFile.id, targetName, token);
-          if (success) {
-            renamedCount++;
-            report.push({ product: product.name, from: matchedFile.name, to: targetName, id: matchedFile.id });
-          } else {
-            report.push({ product: product.name, error: "Falha ao renomear arquivo", fileId: matchedFile.id });
-          }
-        } else {
-          report.push({ product: product.name, status: "Já renomeado", name: targetName, id: matchedFile.id });
-        }
-      } else {
-        report.push({ product: product.name, status: "Não encontrado no Drive" });
-      }
-    }
-
-    res.json({ success: true, renamedCount, report });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Preenche fotos e IDs faltantes na planilha real de produtos (a fonte de
-// dados é a planilha em si, mantida manualmente — este botão não sobrescreve
-// os dados, só completa o que está em branco), garante que Avaliações tenha
-// ao menos os dados padrão, e atualiza o espelho de produtos no Firestore.
-router.post("/api/admin/sync-sheets", adminLimiter, requireAdmin, async (req, res) => {
-  try {
-    const token = getRequestToken(req);
-    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
-
-    const { updated, total } = await backfillMissingProductPhotos(token);
-
-    const reviewHeaders = ["id", "nome", "estrelas", "comentario", "ativo"];
-    const reviewRows = MOCK_REVIEWS.map(r => [
-      r.id,
-      r.name,
-      r.rating,
-      r.comment,
-      r.active ? "Sim" : "Não"
-    ]);
-    const reviewSheetData = [reviewHeaders, ...reviewRows];
-
-    const rSuccess = await writeGoogleSheetRows("Avaliacoes!A1:E50", reviewSheetData, token);
-
-    // Atualiza o espelho no Firestore com o estado mais recente da planilha
-    // (já com as fotos/IDs preenchidos), pra loja carregar rápido.
-    const freshProducts = await getProductsFromSheet(token);
-    await syncProductsToFirestore(freshProducts);
-
-    if (rSuccess) {
-      res.json({ success: true, message: `Fotos preenchidas: ${updated} de ${total} produtos. Firestore atualizado. Avaliações configuradas.` });
-    } else {
-      res.status(500).json({ error: "Falha ao gravar a aba de Avaliações." });
-    }
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// -------------------------------------------------------------
-// PORTAL ADMINISTRATIVO: CRUD DE PRODUTOS (fonte de dados = Google Sheets)
+// PORTAL ADMINISTRATIVO: CRUD DE PRODUTOS (Firestore)
 // -------------------------------------------------------------
 
 function parseCouponBody(body: any): Coupon | null {
@@ -458,7 +316,7 @@ function parseProductBody(body: any) {
     composition: String(body.composition || ""),
     price: Number(body.price) || 0,
     promoPrice: body.promoPrice !== undefined && body.promoPrice !== "" ? Number(body.promoPrice) : undefined,
-    imageUrl: String(body.imageUrl || ""),
+    imageUrl: String(body.imageUrl || "") || FALLBACK_PRODUCT_IMAGE,
     stock: Number(body.stock) || 0,
     category,
     slug: body.slug ? String(body.slug) : slugify(name),
@@ -470,16 +328,7 @@ function parseProductBody(body: any) {
 // Lista todos os produtos (incluindo inativos) para a tabela do portal
 router.get("/api/admin/products", adminLimiter, requireAdmin, async (req, res) => {
   try {
-    // Firestore-first, como o resto do app: a planilha só guarda 6 colunas
-    // legadas (nome, preço, composição-como-descrição, estoque, id, foto) e
-    // nunca teve peso, composição própria, preço promocional ou o toggle de
-    // ativo — usar só a planilha aqui fazia esses campos "sumirem" ao reabrir
-    // a edição, mesmo já salvos corretamente no Firestore.
-    let products = await getProductsFromFirestore();
-    if (!products) {
-      const token = getRequestToken(req);
-      products = await getProductsFromSheet(token);
-    }
+    const products = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
     res.json(products);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -488,16 +337,11 @@ router.get("/api/admin/products", adminLimiter, requireAdmin, async (req, res) =
 
 router.post("/api/admin/products", adminLimiter, requireAdmin, async (req, res) => {
   try {
-    const token = getRequestToken(req);
-    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
-
     const parsed = parseProductBody(req.body);
     if (!parsed) return res.status(400).json({ error: "Nome e categoria são obrigatórios." });
 
     const id = `prod-${randomUUID().slice(0, 8)}`;
     const product = { id, ...parsed };
-    const ok = await upsertProductRow(product, token);
-    if (!ok) return res.status(500).json({ error: "Falha ao gravar o produto na planilha." });
     await setProductInFirestore(product);
     res.json({ success: true, product });
   } catch (error: any) {
@@ -507,15 +351,10 @@ router.post("/api/admin/products", adminLimiter, requireAdmin, async (req, res) 
 
 router.put("/api/admin/products/:id", adminLimiter, requireAdmin, async (req, res) => {
   try {
-    const token = getRequestToken(req);
-    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
-
     const parsed = parseProductBody(req.body);
     if (!parsed) return res.status(400).json({ error: "Nome e categoria são obrigatórios." });
 
     const product = { id: req.params.id, ...parsed };
-    const ok = await upsertProductRow(product, token);
-    if (!ok) return res.status(500).json({ error: "Falha ao atualizar o produto na planilha." });
     await setProductInFirestore(product);
     res.json({ success: true, product });
   } catch (error: any) {
@@ -525,11 +364,6 @@ router.put("/api/admin/products/:id", adminLimiter, requireAdmin, async (req, re
 
 router.delete("/api/admin/products/:id", adminLimiter, requireAdmin, async (req, res) => {
   try {
-    const token = getRequestToken(req);
-    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
-
-    const ok = await deleteProductRow(req.params.id, token);
-    if (!ok) return res.status(404).json({ error: "Produto não encontrado na planilha." });
     await deleteProductFromFirestore(req.params.id);
     res.json({ success: true });
   } catch (error: any) {
@@ -727,66 +561,58 @@ router.delete("/api/admin/coupons/:code", adminLimiter, requireAdmin, async (req
   }
 });
 
-// Replica pedidos/clientes/mensagens novos do Firestore para as abas que já
-// existiam na planilha real da loja (vendas/clientes/mensagens) — só o que
-// ainda não foi sincronizado, sem tocar nas linhas históricas já existentes.
-router.post("/api/admin/sync-firestore-to-sheet", adminLimiter, requireAdmin, async (req, res) => {
+// -------------------------------------------------------------
+// PORTAL ADMINISTRATIVO: CRUD DE AVALIAÇÕES (Firestore)
+// -------------------------------------------------------------
+function parseReviewBody(body: any) {
+  const name = String(body.name || "").trim();
+  const rating = Number(body.rating);
+  if (!name || !rating || rating < 1 || rating > 5) return null;
+  return {
+    name,
+    rating,
+    comment: String(body.comment || "").trim(),
+    active: body.active !== false
+  };
+}
+
+router.get("/api/admin/reviews", adminLimiter, requireAdmin, async (req, res) => {
   try {
-    const token = getRequestToken(req);
-    if (!token) return res.status(401).json({ error: "Token de autenticação Google ausente ou inválido." });
+    const reviews = (await getReviewsFromFirestore()) || MOCK_REVIEWS;
+    res.json(reviews);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    const [unsyncedOrders, unsyncedCustomers, unsyncedMessages] = await Promise.all([
-      getUnsyncedOrders(),
-      getUnsyncedCustomers(),
-      getUnsyncedMessages()
-    ]);
+router.post("/api/admin/reviews", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const parsed = parseReviewBody(req.body);
+    if (!parsed) return res.status(400).json({ error: "Nome e nota (1 a 5) são obrigatórios." });
+    const review = { id: `rev-${randomUUID().slice(0, 8)}`, ...parsed };
+    await setReviewInFirestore(review);
+    res.json({ success: true, review });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    let ordersSynced = 0;
-    for (const order of unsyncedOrders) {
-      const ok = await appendGoogleSheetRow("vendas", [
-        order.date,
-        order.clientName,
-        String(order.total).replace(".", ","),
-        order.items,
-        order.paymentStatus
-      ], token);
-      if (ok) {
-        await markOrderSynced(order.id);
-        ordersSynced++;
-      }
-    }
+router.put("/api/admin/reviews/:id", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const parsed = parseReviewBody(req.body);
+    if (!parsed) return res.status(400).json({ error: "Nome e nota (1 a 5) são obrigatórios." });
+    const review = { id: req.params.id, ...parsed };
+    await setReviewInFirestore(review);
+    res.json({ success: true, review });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    let customersSynced = 0;
-    for (const { id, customer } of unsyncedCustomers) {
-      const ok = await appendGoogleSheetRow("clientes", [
-        customer.lastOrderAt ? new Date(customer.lastOrderAt).toLocaleString("pt-BR") : "",
-        customer.name,
-        customer.email
-      ], token);
-      if (ok) {
-        await markCustomerSynced(id);
-        customersSynced++;
-      }
-    }
-
-    let messagesSynced = 0;
-    for (const msg of unsyncedMessages) {
-      const ok = await appendGoogleSheetRow("mensagens", [
-        msg.createdAt ? new Date(msg.createdAt).toLocaleString("pt-BR") : "",
-        msg.name,
-        msg.email,
-        msg.message
-      ], token);
-      if (ok) {
-        await markMessageSynced(msg.id);
-        messagesSynced++;
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `Sincronizado: ${ordersSynced} pedido(s), ${customersSynced} cliente(s), ${messagesSynced} mensagem(ns).`
-    });
+router.delete("/api/admin/reviews/:id", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    await deleteReviewFromFirestore(req.params.id);
+    res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -959,14 +785,9 @@ router.get("/robots.txt", (req, res) => {
 // Sitemap.xml dinâmico
 router.get("/sitemap.xml", async (req, res) => {
   try {
-    // Firestore-first: a planilha sempre marca todo produto como ativo, então
-    // usá-la aqui listava produtos já desativados no admin.
-    let products = await getProductsFromFirestore();
-    if (!products) {
-      products = await getProductsFromSheet();
-    }
+    const products = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
     const activeProducts = products.filter(p => p.active);
-    
+
     const baseUrl = resolveAppBaseUrl(req);
 
     res.type("application/xml");
@@ -1015,14 +836,11 @@ function escapeHtml(value: string): string {
 // mostrava o título/imagem genéricos da Home em vez do produto real.
 router.get("/produto/:slug", async (req, res, next) => {
   try {
-    let products = await getProductsFromFirestore();
-    if (!products) {
-      products = await getProductsFromSheet();
-    }
+    const products = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
     const product = products.find(p => p.slug === req.params.slug && p.active);
     if (!product) return next();
 
-    const reviews = (await getReviewsFromSheet()).filter(r => r.active);
+    const reviews = ((await getReviewsFromFirestore()) || MOCK_REVIEWS).filter(r => r.active);
 
     const indexPath = process.env.NODE_ENV === "production"
       ? path.join(process.cwd(), "dist", "index.html")

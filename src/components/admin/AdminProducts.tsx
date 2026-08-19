@@ -172,7 +172,7 @@ export default function AdminProducts({ token }: AdminProductsProps) {
   };
 
   const handleDelete = async (p: Product) => {
-    if (!window.confirm(`Excluir "${p.name}" permanentemente da planilha?`)) return;
+    if (!window.confirm(`Excluir "${p.name}" permanentemente?`)) return;
     setIsActionLoading(true);
     try {
       await adminFetch(`/api/admin/products/${p.id}`, token, { method: "DELETE" });
@@ -212,7 +212,7 @@ export default function AdminProducts({ token }: AdminProductsProps) {
             <RefreshCw className="h-6 w-6 animate-spin text-natural-gold" />
           </div>
         ) : products.length === 0 ? (
-          <p className="text-center text-xs text-natural-text py-12">Nenhum produto na planilha ainda.</p>
+          <p className="text-center text-xs text-natural-text py-12">Nenhum produto cadastrado ainda.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">

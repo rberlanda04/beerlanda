@@ -136,7 +136,7 @@ const MOCK_PRODUCTS: Product[] = [
   {
     id: "prod-45",
     name: "Ecobag Beerlanda",
-    description: "[PREÇO E DESCRIÇÃO PROVISÓRIOS — atualizar na planilha] Ecobag de tecido resistente e reutilizável, ideal para compras conscientes no dia a dia.",
+    description: "Ecobag de tecido resistente e reutilizável, ideal para compras conscientes no dia a dia.",
     price: 0,
     imageUrl: "https://images.unsplash.com/photo-1587049352846-4a222e784d38?auto=format&fit=crop&q=80&w=600",
     stock: 10,

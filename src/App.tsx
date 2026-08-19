@@ -29,14 +29,8 @@ export default function App() {
   }
 
   // --- ESTADO GLOBAL ---
-  const [appConfig, setAppConfig] = useState<{
-    contactEmail: string;
-    googleSheetId: string;
-    googleDriveFolderId: string;
-  }>({
-    contactEmail: "beerlandaprodutosartesanais@gmail.com",
-    googleSheetId: "",
-    googleDriveFolderId: ""
+  const [appConfig, setAppConfig] = useState<{ contactEmail: string }>({
+    contactEmail: "beerlandaprodutosartesanais@gmail.com"
   });
 
   const [products, setProducts] = useState<Product[]>([]);

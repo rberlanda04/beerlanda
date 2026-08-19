@@ -376,7 +376,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
         )}
       </section>
 
-      {/* 4. SEÇÃO PROVA SOCIAL (Avaliações dos Clientes lidas do Sheets) */}
+      {/* 4. SEÇÃO PROVA SOCIAL (Avaliações dos Clientes) */}
       <section className="rounded-3xl border border-natural-border bg-natural-card p-8 sm:p-12">
         <div className="text-center max-w-xl mx-auto mb-10">
           <span className="text-xs font-bold uppercase tracking-widest text-natural-gold">Prova Social Real</span>
