@@ -470,8 +470,16 @@ function parseProductBody(body: any) {
 // Lista todos os produtos (incluindo inativos) para a tabela do portal
 router.get("/api/admin/products", adminLimiter, requireAdmin, async (req, res) => {
   try {
-    const token = getRequestToken(req);
-    const products = await getProductsFromSheet(token);
+    // Firestore-first, como o resto do app: a planilha só guarda 6 colunas
+    // legadas (nome, preço, composição-como-descrição, estoque, id, foto) e
+    // nunca teve peso, composição própria, preço promocional ou o toggle de
+    // ativo — usar só a planilha aqui fazia esses campos "sumirem" ao reabrir
+    // a edição, mesmo já salvos corretamente no Firestore.
+    let products = await getProductsFromFirestore();
+    if (!products) {
+      const token = getRequestToken(req);
+      products = await getProductsFromSheet(token);
+    }
     res.json(products);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -951,7 +959,12 @@ router.get("/robots.txt", (req, res) => {
 // Sitemap.xml dinâmico
 router.get("/sitemap.xml", async (req, res) => {
   try {
-    const products = await getProductsFromSheet();
+    // Firestore-first: a planilha sempre marca todo produto como ativo, então
+    // usá-la aqui listava produtos já desativados no admin.
+    let products = await getProductsFromFirestore();
+    if (!products) {
+      products = await getProductsFromSheet();
+    }
     const activeProducts = products.filter(p => p.active);
     
     const baseUrl = resolveAppBaseUrl(req);
