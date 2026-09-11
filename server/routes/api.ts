@@ -1,11 +1,11 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import fs from 'fs';
-import path from 'path';
 import { Order, Coupon, Subscriber, MonthlyCollection } from '../../src/types';
 import { MOCK_REVIEWS, MOCK_PRODUCTS } from '../data/mock';
+import { CATEGORY_SEO, categoryToSlug, findCategoryBySlug } from '../../src/lib/categories';
 import { randomUUID } from 'crypto';
 import { isAuthorizedAdmin, slugify } from '../services/googleService';
+import { renderPageHtml } from '../services/seoService';
 import { uploadImageBuffer } from '../services/storageService';
 import {
   setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
@@ -789,51 +789,67 @@ router.get("/sitemap.xml", async (req, res) => {
     const activeProducts = products.filter(p => p.active);
 
     const baseUrl = resolveAppBaseUrl(req);
+    const today = new Date().toISOString().split("T")[0];
 
-    res.type("application/xml");
+    // lastmod só vale como sinal se for verdade: o Firestore grava updatedAt a
+    // cada edição no admin, então usamos a data real do produto e caímos pra
+    // hoje apenas quando ela não existe.
+    const lastModOf = (product: any): string => {
+      const raw = product?.updatedAt;
+      if (!raw) return today;
+      const date = new Date(raw);
+      return Number.isNaN(date.getTime()) ? today : date.toISOString().split("T")[0];
+    };
+
+    const entry = (loc: string, lastmod: string, changefreq: string, priority: string) =>
+      `  <url>\n` +
+      `    <loc>${loc}</loc>\n` +
+      `    <lastmod>${lastmod}</lastmod>\n` +
+      `    <changefreq>${changefreq}</changefreq>\n` +
+      `    <priority>${priority}</priority>\n` +
+      `  </url>\n`;
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
 
-    // Home
-    xml += `  <url>\n`;
-    xml += `    <loc>${baseUrl}/</loc>\n`;
-    xml += `    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>\n`;
-    xml += `    <changefreq>daily</changefreq>\n`;
-    xml += `    <priority>1.0</priority>\n`;
-    xml += `  </url>\n`;
+    xml += entry(`${baseUrl}/`, today, "daily", "1.0");
 
-    // Active Products
-    activeProducts.forEach((prod) => {
-      xml += `  <url>\n`;
-      xml += `    <loc>${baseUrl}/produto/${prod.slug}</loc>\n`;
-      xml += `    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>\n`;
-      xml += `    <changefreq>weekly</changefreq>\n`;
-      xml += `    <priority>0.8</priority>\n`;
-      xml += `  </url>\n`;
+    // Categorias sem nenhum produto ativo ficam de fora: página vazia indexada
+    // conta como conteúdo raso e prejudica o domínio inteiro.
+    CATEGORY_SEO.forEach((category) => {
+      const hasProducts = activeProducts.some(
+        p => String(p.category).toLowerCase() === category.name.toLowerCase()
+      );
+      if (hasProducts) {
+        xml += entry(`${baseUrl}/categoria/${category.slug}`, today, "weekly", "0.9");
+      }
     });
 
+    activeProducts.forEach((product) => {
+      xml += entry(`${baseUrl}/produto/${product.slug}`, lastModOf(product), "weekly", "0.8");
+    });
+
+    xml += entry(`${baseUrl}/clube`, today, "monthly", "0.6");
+
     xml += `</urlset>\n`;
+
+    res.type("application/xml");
     res.send(xml);
   } catch (error) {
     res.status(500).send("Erro ao gerar sitemap");
   }
 });
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+// -------------------------------------------------------------
+// PÁGINAS INDEXÁVEIS (metadados montados no servidor)
+// -------------------------------------------------------------
+// O app é uma SPA e o roteador interno reage a #hash, mas o Google e os
+// scrapers de link (WhatsApp, Instagram, Facebook) leem o HTML cru, sem
+// executar JavaScript. Cada rota abaixo entrega esse HTML já com título,
+// descrição, Open Graph, canonical e JSON-LD próprios — o cliente assume a
+// navegação a partir daí. Adicionar um tipo de página novo é declarar um
+// objeto no renderPageHtml, não repetir a injeção de tags.
 
-// Meta tags por produto (SSR mínimo): o app é uma SPA e o roteador interno só
-// reage a #hash, então um bot/scraper batendo direto em /produto/:slug (como
-// os links do sitemap e qualquer link compartilhado no WhatsApp/Instagram)
-// via GET simples só via HTML estático — sem isso, todo link de produto
-// mostrava o título/imagem genéricos da Home em vez do produto real.
 router.get("/produto/:slug", async (req, res, next) => {
   try {
     const products = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
@@ -842,28 +858,10 @@ router.get("/produto/:slug", async (req, res, next) => {
 
     const reviews = ((await getReviewsFromFirestore()) || MOCK_REVIEWS).filter(r => r.active);
 
-    const indexPath = process.env.NODE_ENV === "production"
-      ? path.join(process.cwd(), "dist", "index.html")
-      : path.join(process.cwd(), "index.html");
-    let html = fs.readFileSync(indexPath, "utf-8");
-
     const baseUrl = resolveAppBaseUrl(req);
-    const title = escapeHtml(`${product.name} | Beerlanda`);
-    const description = escapeHtml(product.description.slice(0, 160));
     const url = `${baseUrl}/produto/${product.slug}`;
     const image = product.imageUrl || `${baseUrl}/og-image.png`;
-
-    html = html
-      .replace(/<title>.*?<\/title>/, `<title>${title}</title>`)
-      .replace(/<meta name="description" content=".*?" \/>/, `<meta name="description" content="${description}" />`)
-      .replace(/<meta property="og:title" content=".*?" \/>/, `<meta property="og:title" content="${title}" />`)
-      .replace(/<meta property="og:description" content=".*?" \/>/, `<meta property="og:description" content="${description}" />`)
-      .replace(/<meta property="og:image" content=".*?" \/>/, `<meta property="og:image" content="${image}" />`)
-      .replace(/<meta property="og:url" content=".*?" \/>/, `<meta property="og:url" content="${url}" />`)
-      .replace(/<meta name="twitter:title" content=".*?" \/>/, `<meta name="twitter:title" content="${title}" />`)
-      .replace(/<meta name="twitter:description" content=".*?" \/>/, `<meta name="twitter:description" content="${description}" />`)
-      .replace(/<meta name="twitter:image" content=".*?" \/>/, `<meta name="twitter:image" content="${image}" />`)
-      .replace(/<link rel="canonical" href=".*?" \/>/, `<link rel="canonical" href="${url}" />`);
+    const categorySlug = categoryToSlug(product.category);
 
     const productSchema = {
       "@context": "https://schema.org",
@@ -872,11 +870,12 @@ router.get("/produto/:slug", async (req, res, next) => {
       description: product.description,
       image,
       url,
+      sku: product.id,
       brand: { "@type": "Brand", name: "Beerlanda" },
       offers: {
         "@type": "Offer",
         priceCurrency: "BRL",
-        price: String(product.price),
+        price: String(product.promoPrice ?? product.price),
         availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
         url
       },
@@ -896,19 +895,99 @@ router.get("/produto/:slug", async (req, res, next) => {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
       itemListElement: [
-        { "@type": "ListItem", position: 1, name: "Beerlanda", item: `${baseUrl}/` },
-        { "@type": "ListItem", position: 2, name: product.category, item: `${baseUrl}/#produto/${product.slug}` },
-        { "@type": "ListItem", position: 3, name: product.name, item: url }
+        { "@type": "ListItem", position: 1, name: "Início", item: `${baseUrl}/` },
+        ...(categorySlug
+          ? [{ "@type": "ListItem", position: 2, name: product.category, item: `${baseUrl}/categoria/${categorySlug}` }]
+          : []),
+        { "@type": "ListItem", position: categorySlug ? 3 : 2, name: product.name, item: url }
       ]
     };
 
-    html = html.replace(
-      "</head>",
-      `<script type="application/ld+json">${JSON.stringify(productSchema)}</script>\n` +
-      `  <script type="application/ld+json">${JSON.stringify(breadcrumbSchema)}</script>\n  </head>`
+    res.type("html").send(renderPageHtml({
+      title: `${product.name} | Beerlanda`,
+      description: product.description,
+      url,
+      image,
+      type: "product",
+      schemas: [productSchema, breadcrumbSchema]
+    }));
+  } catch (error) {
+    next();
+  }
+});
+
+// Páginas de categoria: as buscas comerciais que trazem gente nova são por
+// categoria ("sabonete artesanal", "bálsamo de cera de abelha"), não pelo nome
+// exato de um produto. Sem uma URL própria por categoria, o site só tinha a
+// Home competindo por esses termos.
+router.get("/categoria/:slug", async (req, res, next) => {
+  try {
+    const category = findCategoryBySlug(req.params.slug);
+    if (!category) return next();
+
+    const products = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
+    const inCategory = products.filter(
+      p => p.active && String(p.category).toLowerCase() === category.name.toLowerCase()
     );
 
-    res.type("html").send(html);
+    const baseUrl = resolveAppBaseUrl(req);
+    const url = `${baseUrl}/categoria/${category.slug}`;
+
+    const itemListSchema = {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      name: category.title,
+      numberOfItems: inCategory.length,
+      itemListElement: inCategory.map((p, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        name: p.name,
+        url: `${baseUrl}/produto/${p.slug}`
+      }))
+    };
+
+    const breadcrumbSchema = {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Início", item: `${baseUrl}/` },
+        { "@type": "ListItem", position: 2, name: category.name, item: url }
+      ]
+    };
+
+    res.type("html").send(renderPageHtml({
+      title: category.title,
+      description: category.description,
+      url,
+      image: inCategory[0]?.imageUrl,
+      schemas: [itemListSchema, breadcrumbSchema]
+    }));
+  } catch (error) {
+    next();
+  }
+});
+
+// O Clube da Colmeia é o link mais compartilhado no Instagram/WhatsApp — sem
+// metadados próprios, toda divulgação dele mostrava a prévia genérica da Home.
+router.get("/clube", (req, res, next) => {
+  try {
+    const baseUrl = resolveAppBaseUrl(req);
+    const url = `${baseUrl}/clube`;
+
+    res.type("html").send(renderPageHtml({
+      title: "Clube da Colmeia — Assinatura de Produtos Artesanais | Beerlanda",
+      description:
+        "Entre para a Primeira Colmeia e receba caixas surpresa com produtos artesanais curados à mão pelo nosso ateliê. Sem custo e sem compromisso para entrar na lista.",
+      url,
+      schemas: [{
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: "Clube da Colmeia",
+        description: "Clube de assinatura de produtos artesanais da Beerlanda.",
+        url,
+        isPartOf: { "@type": "WebSite", name: "Beerlanda", url: `${baseUrl}/` }
+      }]
+    }));
   } catch (error) {
     next();
   }

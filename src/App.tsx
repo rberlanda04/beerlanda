@@ -1,6 +1,7 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Product, Review, CartItem, Coupon } from "./types";
 import { scrollToTop } from "./utils";
+import { findCategoryBySlug } from "./lib/categories";
 
 // Subcomponentes
 import Header from "./components/Header";
@@ -39,6 +40,8 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [currentView, setCurrentView] = useState<"home" | "product" | "checkout" | "payment-success" | "payment-failure" | "payment-pending" | "clube" | "clube-welcome">("home");
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+  // Categoria vinda da URL (/categoria/slug) — a Home abre já filtrada por ela.
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -114,16 +117,27 @@ export default function App() {
   // --- ROTEADOR BASEADO EM HASH (Excelente para iframes) ---
   useEffect(() => {
     function handleHashChange() {
-      // Links de produto compartilhados (sitemap, WhatsApp, Instagram) usam
-      // caminho real (/produto/slug) pra ter meta tags corretas no SSR — se
-      // não há hash, mas a URL já chegou nesse caminho, trata como se fosse.
+      // As URLs indexáveis (sitemap, links compartilhados no WhatsApp e
+      // Instagram) usam caminho real — /produto/slug, /categoria/slug, /clube —
+      // porque é isso que o servidor consegue entregar já com as meta tags
+      // certas. Se a pessoa chegou por um desses caminhos e não há hash, o
+      // roteador interno trata como se o hash equivalente estivesse lá.
       let hash = window.location.hash;
       if (!hash) {
-        const pathMatch = window.location.pathname.match(/^\/produto\/([^/]+)\/?$/);
-        if (pathMatch) hash = `#produto/${pathMatch[1]}`;
+        const path = window.location.pathname;
+        const productMatch = path.match(/^\/produto\/([^/]+)\/?$/);
+        const categoryMatch = path.match(/^\/categoria\/([^/]+)\/?$/);
+        if (productMatch) hash = `#produto/${productMatch[1]}`;
+        else if (categoryMatch) hash = `#categoria/${categoryMatch[1]}`;
+        else if (/^\/clube\/?$/.test(path)) hash = "#clube";
       }
 
-      if (hash.startsWith("#produto/")) {
+      if (hash.startsWith("#categoria/")) {
+        const category = findCategoryBySlug(hash.replace("#categoria/", ""));
+        setActiveCategory(category ? category.name : null);
+        setCurrentView("home");
+        setSelectedProduct(null);
+      } else if (hash.startsWith("#produto/")) {
         const slug = hash.replace("#produto/", "");
         // Procurar produto pelo slug
         const found = products.find((p) => p.slug === slug);
@@ -186,6 +200,10 @@ export default function App() {
 
   const navigateToProduct = (product: Product) => {
     window.location.hash = `#produto/${product.slug}`;
+  };
+
+  const navigateToCategory = (slug: string | null) => {
+    window.location.hash = slug ? `#categoria/${slug}` : "";
   };
 
   const navigateToCheckout = () => {
@@ -259,6 +277,8 @@ export default function App() {
                 products={products}
                 reviews={reviews}
                 onSelectProduct={navigateToProduct}
+                onSelectCategory={navigateToCategory}
+                activeCategory={activeCategory}
                 onAddToCart={handleAddToCart}
                 isLoading={isLoading}
               />

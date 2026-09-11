@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type MouseEvent } from "react";
 import { Product, Review } from "../types";
 import { formatCurrency, getCategoryIcon, PRODUCT_CATEGORIES } from "../utils";
+import { categoryToSlug } from "../lib/categories";
 import { Star, ShieldAlert, Sparkles, ArrowRight, CheckCircle, Flame, StarHalf, Search, Heart, ShieldCheck, FlaskConical, Hand, Recycle, Award } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -20,14 +21,22 @@ interface HomeViewProps {
   products: Product[];
   reviews: Review[];
   onSelectProduct: (product: Product) => void;
+  onSelectCategory: (slug: string | null) => void;
+  activeCategory: string | null;
   onAddToCart: (product: Product) => void;
   isLoading: boolean;
 }
 
-export default function HomeView({ products, reviews, onSelectProduct, onAddToCart, isLoading }: HomeViewProps) {
-  const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
+export default function HomeView({ products, reviews, onSelectProduct, onSelectCategory, activeCategory, onAddToCart, isLoading }: HomeViewProps) {
+  const [selectedCategory, setSelectedCategory] = useState<string>(activeCategory || "Todos");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [favorites, setFavorites] = useState<Product[]>([]);
+
+  // A categoria também vem da URL (/categoria/slug), então o filtro acompanha
+  // quem chegou por um link direto ou usou voltar/avançar do navegador.
+  useEffect(() => {
+    setSelectedCategory(activeCategory || "Todos");
+  }, [activeCategory]);
 
   useEffect(() => {
     fetch("/api/favorites")
@@ -35,6 +44,15 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
       .then((data) => setFavorites(data?.products || []))
       .catch(() => {});
   }, []);
+
+  // Os cards apontam pra /produto/slug com <a href> de verdade: é assim que o
+  // Google navega da Home até cada produto (antes só chegava pelo sitemap, sem
+  // texto âncora) e é o que permite abrir em nova aba. O clique comum segue
+  // sendo tratado pelo roteador interno, sem recarregar a página.
+  const openProduct = (event: MouseEvent<HTMLAnchorElement>, product: Product) => {
+    event.preventDefault();
+    onSelectProduct(product);
+  };
 
   const discoveredCategories = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
   const sortedCategories = discoveredCategories.sort((a, b) => {
@@ -144,9 +162,11 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                     Favorito
                   </span>
 
-                  <div
-                    className="relative aspect-square w-full overflow-hidden bg-natural-card border-b border-natural-border cursor-pointer"
-                    onClick={() => onSelectProduct(product)}
+                  <a
+                    href={`/produto/${product.slug}`}
+                    onClick={(e) => openProduct(e, product)}
+                    aria-label={product.name}
+                    className="relative block aspect-square w-full overflow-hidden bg-natural-card border-b border-natural-border cursor-pointer"
                   >
                     <img
                       src={product.imageUrl}
@@ -155,18 +175,17 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                       className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-105"
                       loading="lazy"
                     />
-                  </div>
+                  </a>
 
                   <div className="flex flex-1 flex-col p-5">
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-natural-gold">
                       <CategoryIcon className="h-3 w-3" aria-hidden="true" />
                       {product.category}
                     </span>
-                    <h3
-                      className="mt-1 font-display text-base font-bold text-natural-darkbrown group-hover:text-natural-gold cursor-pointer transition-colors line-clamp-1"
-                      onClick={() => onSelectProduct(product)}
-                    >
-                      {product.name}
+                    <h3 className="mt-1 font-display text-base font-bold text-natural-darkbrown group-hover:text-natural-gold transition-colors line-clamp-1">
+                      <a href={`/produto/${product.slug}`} onClick={(e) => openProduct(e, product)} className="cursor-pointer">
+                        {product.name}
+                      </a>
                     </h3>
                     <div className="mt-3 flex items-baseline gap-2">
                       <span className="text-xl font-bold text-natural-darkbrown">{formatCurrency(activePrice)}</span>
@@ -212,14 +231,22 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
           </div>
         </div>
 
-        {/* Botões de Categorias */}
-        <div className="flex flex-wrap gap-2 mb-8">
+        {/* Filtro de categorias — são links de verdade (<a href>) pra que o
+            Google consiga chegar em /categoria/slug a partir da Home; o clique
+            é interceptado pra filtrar na hora, sem recarregar a página. */}
+        <nav className="flex flex-wrap gap-2 mb-8" aria-label="Filtrar por categoria">
           {categories.map((cat) => {
             const CatIcon = cat !== "Todos" ? getCategoryIcon(cat) : null;
+            const slug = cat === "Todos" ? null : categoryToSlug(cat);
             return (
-              <button
+              <a
                 key={cat}
-                onClick={() => setSelectedCategory(cat)}
+                href={slug ? `/categoria/${slug}` : "/"}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setSelectedCategory(cat);
+                  onSelectCategory(slug);
+                }}
                 className={`inline-flex items-center gap-1.5 rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${selectedCategory === cat
                   ? "bg-natural-gold text-white shadow-sm"
                   : "bg-natural-card text-natural-text border border-natural-border hover:bg-natural-border"
@@ -228,10 +255,10 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
               >
                 {CatIcon && <CatIcon className="h-3.5 w-3.5" aria-hidden="true" />}
                 {cat}
-              </button>
+              </a>
             );
           })}
-        </div>
+        </nav>
 
         {/* 3. VITRINE DE PRODUTOS */}
         {isLoading ? (
@@ -300,9 +327,11 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                   </div>
 
                   {/* Imagem do Produto com Zoom e Fundo Natural */}
-                  <div
-                    className="relative aspect-square w-full overflow-hidden bg-natural-card border-b border-natural-border cursor-pointer flex items-center justify-center"
-                    onClick={() => onSelectProduct(product)}
+                  <a
+                    href={`/produto/${product.slug}`}
+                    onClick={(e) => openProduct(e, product)}
+                    aria-label={product.name}
+                    className="relative flex aspect-square w-full overflow-hidden bg-natural-card border-b border-natural-border cursor-pointer items-center justify-center"
                   >
                     <img
                       src={product.imageUrl}
@@ -316,7 +345,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                       Orgânico
                     </span>
                     <div className="absolute inset-0 bg-black/3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
+                  </a>
 
                   {/* Informações */}
                   <div className="flex flex-1 flex-col p-5">
@@ -324,11 +353,10 @@ export default function HomeView({ products, reviews, onSelectProduct, onAddToCa
                       <CategoryIcon className="h-3 w-3" aria-hidden="true" />
                       {product.category}
                     </span>
-                    <h3
-                      className="mt-1 font-display text-base font-bold text-natural-darkbrown group-hover:text-natural-gold cursor-pointer transition-colors line-clamp-1"
-                      onClick={() => onSelectProduct(product)}
-                    >
-                      {product.name}
+                    <h3 className="mt-1 font-display text-base font-bold text-natural-darkbrown group-hover:text-natural-gold transition-colors line-clamp-1">
+                      <a href={`/produto/${product.slug}`} onClick={(e) => openProduct(e, product)} className="cursor-pointer">
+                        {product.name}
+                      </a>
                     </h3>
                     <p className="mt-1 text-xs text-natural-text/80 line-clamp-2 leading-relaxed">
                       {product.description}

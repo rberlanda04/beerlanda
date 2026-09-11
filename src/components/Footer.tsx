@@ -84,11 +84,14 @@ export default function Footer({ appConfig }: FooterProps) {
           <div>
             <h5 className="font-display font-bold text-sm text-charcoal-900 uppercase tracking-wider mb-4">Nossos Produtos</h5>
             <ul className="space-y-2 text-xs text-charcoal-900/70">
-              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Droplet className="h-3.5 w-3.5" />Sabonetes</span></li>
-              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Droplet className="h-3.5 w-3.5" />Bálsamos</span></li>
-              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Flame className="h-3.5 w-3.5" />Velas Naturais</span></li>
-              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Waves className="h-3.5 w-3.5" />Sais</span></li>
-              <li><span className="inline-flex items-center gap-1.5 hover:text-brand-600 cursor-pointer"><Package className="h-3.5 w-3.5" />Outros</span></li>
+              {/* Links reais pras categorias: além de finalmente funcionarem
+                  (antes eram <span> sem ação nenhuma), dão ao Google um
+                  caminho pra cada categoria a partir de qualquer página. */}
+              <li><a href="/categoria/sabonetes" className="inline-flex items-center gap-1.5 hover:text-brand-600"><Droplet className="h-3.5 w-3.5" />Sabonetes</a></li>
+              <li><a href="/categoria/balsamos" className="inline-flex items-center gap-1.5 hover:text-brand-600"><Droplet className="h-3.5 w-3.5" />Bálsamos</a></li>
+              <li><a href="/categoria/velas" className="inline-flex items-center gap-1.5 hover:text-brand-600"><Flame className="h-3.5 w-3.5" />Velas Naturais</a></li>
+              <li><a href="/categoria/sais" className="inline-flex items-center gap-1.5 hover:text-brand-600"><Waves className="h-3.5 w-3.5" />Sais</a></li>
+              <li><a href="/categoria/outros" className="inline-flex items-center gap-1.5 hover:text-brand-600"><Package className="h-3.5 w-3.5" />Outros</a></li>
               <li>
                 <a href="#clube" className="inline-flex items-center gap-1.5 font-bold text-brand-700 hover:text-brand-900" id="footer-clube-link">
                   <Gift className="h-3.5 w-3.5" />
