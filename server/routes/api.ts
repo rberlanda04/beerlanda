@@ -933,6 +933,14 @@ router.get("/categoria/:slug", async (req, res, next) => {
     const baseUrl = resolveAppBaseUrl(req);
     const url = `${baseUrl}/categoria/${category.slug}`;
 
+    // Prévia de link no WhatsApp/Instagram/Facebook não renderiza SVG, e o
+    // placeholder de abelha é justamente um SVG — então a vitrine da categoria
+    // usa a primeira foto real que encontrar e só cai pra og-image padrão se
+    // nenhum produto da categoria tiver foto própria.
+    const showcaseImage = inCategory
+      .map(p => p.imageUrl)
+      .find(src => src && !/\.svg(\?|$)/i.test(src));
+
     const itemListSchema = {
       "@context": "https://schema.org",
       "@type": "ItemList",
@@ -959,7 +967,7 @@ router.get("/categoria/:slug", async (req, res, next) => {
       title: category.title,
       description: category.description,
       url,
-      image: inCategory[0]?.imageUrl,
+      image: showcaseImage,
       schemas: [itemListSchema, breadcrumbSchema]
     }));
   } catch (error) {
