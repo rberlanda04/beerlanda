@@ -151,4 +151,137 @@ async function getShippingOptions(destinationCep: string, totalWeightGrams: numb
   return { pac, sedex };
 }
 
-export { getShippingOptions, defaultWeightForCategory };
+// -------------------------------------------------------------
+// DIAGNÓSTICO (usado pelo painel admin)
+// -------------------------------------------------------------
+// A integração com os Correios depende de duas coisas que estão fora do nosso
+// código: a credencial do contrato ser válida e o contrato ter os produtos de
+// API habilitados. Quando o frete não calcula, a diferença entre esses dois
+// motivos é o que decide o que pedir aos Correios — e ficar rodando script na
+// mão pra descobrir isso não escala. Esta função faz a cadeia inteira
+// (credencial → autenticação → autorização → cotação) e devolve em que degrau
+// parou, o que aquilo significa e qual é o próximo passo.
+
+export type CorreiosStage = "credenciais" | "autenticacao" | "autorizacao" | "cotacao";
+
+export interface CorreiosDiagnostic {
+  ok: boolean;
+  stage: CorreiosStage;
+  title: string;
+  detail: string;
+  /** O que precisa ser feito, quando há algo a fazer. */
+  action: string | null;
+  /** Resposta crua dos Correios, pra anexar num chamado com eles. */
+  raw?: string;
+  /** Preenchido só quando a cotação funciona de verdade. */
+  quote?: ShippingOptions;
+  checkedAt: string;
+}
+
+async function diagnoseCorreios(): Promise<CorreiosDiagnostic> {
+  const checkedAt = new Date().toISOString();
+  const apiKey = process.env.CORREIOS_API_KEY;
+  const originCep = process.env.CORREIOS_ORIGIN_CEP;
+  const userId = process.env.CORREIOS_USER_ID;
+  const accessCode = process.env.CORREIOS_ACCESS_CODE;
+
+  const missing = [
+    !apiKey && "CORREIOS_API_KEY",
+    !originCep && "CORREIOS_ORIGIN_CEP",
+    !userId && "CORREIOS_USER_ID",
+    !accessCode && "CORREIOS_ACCESS_CODE"
+  ].filter(Boolean);
+
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      stage: "credenciais",
+      title: "Credenciais incompletas",
+      detail: `Faltando no ambiente: ${missing.join(", ")}.`,
+      action: "Preencher as variáveis que faltam no serviço e publicar de novo.",
+      checkedAt
+    };
+  }
+
+  // 1. Autenticação — prova se o código de acesso do contrato ainda vale.
+  let token: string;
+  try {
+    token = await getValidCorreiosToken(true);
+  } catch (error: any) {
+    const is401 = /\(401\)/.test(error.message);
+    return {
+      ok: false,
+      stage: "autenticacao",
+      title: is401 ? "Código de acesso recusado" : "Falha ao autenticar",
+      detail: is401
+        ? `Os Correios recusaram o par CNPJ ${userId} + código de acesso (HTTP 401). O código costuma ser invalidado quando um novo é gerado no portal.`
+        : error.message,
+      action: is401
+        ? "Gerar um novo código de acesso no portal dos Correios e atualizar CORREIOS_ACCESS_CODE."
+        : "Verificar a resposta abaixo e tentar novamente.",
+      raw: error.message,
+      checkedAt
+    };
+  }
+
+  // 2. Autorização + cotação — prova se o contrato tem o produto de API
+  // "Preço e Prazo" habilitado. Usa um CEP de destino fixo só como sonda.
+  const dims = pickPackageDimensions(300);
+  let response: Response;
+  try {
+    response = await callCorreiosPricing(PAC_CODE, "01310100", 300, dims, token);
+  } catch (error: any) {
+    return {
+      ok: false,
+      stage: "autorizacao",
+      title: "Sem conexão com os Correios",
+      detail: `Falha de rede ao consultar a API de preço: ${error.message}`,
+      action: "Tentar novamente em alguns instantes.",
+      checkedAt
+    };
+  }
+
+  if (!response.ok) {
+    const raw = (await response.text().catch(() => "")).slice(0, 500);
+    const isRestricted = /GTW-012/.test(raw);
+    return {
+      ok: false,
+      stage: "autorizacao",
+      title: isRestricted ? "Contrato sem a API de preço habilitada" : `Correios respondeu ${response.status}`,
+      detail: isRestricted
+        ? `A autenticação funciona (o token foi emitido), mas o contrato do CNPJ ${userId} não tem o produto de API de Preço e Prazo habilitado — é o erro GTW-012.`
+        : raw || `HTTP ${response.status} sem corpo.`,
+      action: isRestricted
+        ? "Pedir aos Correios a habilitação dos produtos de API no contrato, citando o erro GTW-012 e a resposta abaixo."
+        : "Levar a resposta abaixo ao suporte dos Correios.",
+      raw,
+      checkedAt
+    };
+  }
+
+  // 3. Cotação real ponta a ponta.
+  try {
+    const quote = await getShippingOptions("01310100", 300);
+    return {
+      ok: true,
+      stage: "cotacao",
+      title: "Frete funcionando",
+      detail: `Cotação de teste (300 g, ${originCep} → 01310-100): PAC R$ ${quote.pac.price.toFixed(2)} em ${quote.pac.days} dia(s), SEDEX R$ ${quote.sedex.price.toFixed(2)} em ${quote.sedex.days} dia(s).`,
+      action: null,
+      quote,
+      checkedAt
+    };
+  } catch (error: any) {
+    return {
+      ok: false,
+      stage: "cotacao",
+      title: "A API respondeu, mas a cotação falhou",
+      detail: error.message,
+      action: "Conferir o formato da resposta dos Correios (parseServiceResponse em correiosService.ts).",
+      raw: error.message,
+      checkedAt
+    };
+  }
+}
+
+export { getShippingOptions, defaultWeightForCategory, diagnoseCorreios };

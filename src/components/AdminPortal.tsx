@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   RefreshCw, LogOut, ArrowLeft, LayoutDashboard, Package,
-  ShoppingBag, Users, Tag, Mail, Star, BarChart3, Gift
+  ShoppingBag, Users, Tag, Mail, Star, BarChart3, Gift, Truck
 } from "lucide-react";
 import { User } from "firebase/auth";
 import { googleSignIn, initAuth, logout } from "../lib/googleAuth";
@@ -14,8 +14,9 @@ import AdminCustomers from "./admin/AdminCustomers";
 import AdminCoupons from "./admin/AdminCoupons";
 import AdminReviews from "./admin/AdminReviews";
 import AdminMessages from "./admin/AdminMessages";
+import AdminIntegracoes from "./admin/AdminIntegracoes";
 
-type Section = "dashboard" | "analytics" | "clube" | "products" | "orders" | "customers" | "coupons" | "reviews" | "messages";
+type Section = "dashboard" | "analytics" | "clube" | "products" | "orders" | "customers" | "coupons" | "reviews" | "messages" | "integracoes";
 
 const NAV: { id: Section; label: string; Icon: any }[] = [
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
@@ -26,7 +27,8 @@ const NAV: { id: Section; label: string; Icon: any }[] = [
   { id: "customers", label: "Clientes", Icon: Users },
   { id: "coupons", label: "Cupons", Icon: Tag },
   { id: "reviews", label: "Avaliações", Icon: Star },
-  { id: "messages", label: "Mensagens", Icon: Mail }
+  { id: "messages", label: "Mensagens", Icon: Mail },
+  { id: "integracoes", label: "Integrações", Icon: Truck }
 ];
 
 export default function AdminPortal() {
@@ -171,6 +173,7 @@ export default function AdminPortal() {
             {section === "coupons" && <AdminCoupons token={token} />}
             {section === "reviews" && <AdminReviews token={token} />}
             {section === "messages" && <AdminMessages token={token} />}
+            {section === "integracoes" && <AdminIntegracoes token={token} />}
           </main>
         </div>
       )}

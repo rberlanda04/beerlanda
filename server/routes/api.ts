@@ -21,7 +21,7 @@ import {
 const FALLBACK_PRODUCT_IMAGE = "https://storage.googleapis.com/beerlanda-product-images/branding/bee-placeholder.svg";
 import { createPaymentPreference, getPaymentDetails } from '../services/mercadoPagoService';
 import { createSubscriptionPlan, getSubscriptionDetails } from '../services/mercadoPagoSubscriptionService';
-import { getShippingOptions, defaultWeightForCategory } from '../services/correiosService';
+import { getShippingOptions, defaultWeightForCategory, diagnoseCorreios } from '../services/correiosService';
 
 const router = express.Router();
 
@@ -613,6 +613,20 @@ router.delete("/api/admin/reviews/:id", adminLimiter, requireAdmin, async (req, 
   try {
     await deleteReviewFromFirestore(req.params.id);
     res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// -------------------------------------------------------------
+// DIAGNÓSTICO DE INTEGRAÇÕES
+// -------------------------------------------------------------
+// Deixa o próprio time conferir em que pé está a integração dos Correios sem
+// depender de ninguém rodar script: útil justamente enquanto a liberação do
+// contrato está pendente, pra saber na hora quando ela sair.
+router.get("/api/admin/correios/status", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    res.json(await diagnoseCorreios());
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
