@@ -75,6 +75,118 @@ async function getOrdersFromFirestore(limit = 200): Promise<Order[]> {
   return snap.docs.map((d) => d.data() as Order);
 }
 
+// -------------------------------------------------------------
+// BAIXA DE ESTOQUE
+// -------------------------------------------------------------
+// Duas coisas obrigam isto a ser uma transação com marca de idempotência:
+//
+// 1. O Mercado Pago reenvia o mesmo webhook (é o comportamento normal dele,
+//    não uma falha). Sem a marca `stockCommitted` no pedido, o mesmo pedido
+//    baixaria o estoque a cada reenvio.
+// 2. Dois pedidos pagos no mesmo instante leriam o mesmo saldo e gravariam o
+//    mesmo resultado, vendendo a última unidade duas vezes.
+//
+// O saldo nunca vai abaixo de zero — a venda já foi paga, recusá-la aqui não
+// desfaz nada —, mas a falta é devolvida em `oversold` para o log avisar que
+// aquele item precisa de conferência no estoque físico.
+
+export interface StockMovement {
+  applied: boolean;
+  reason?: string;
+  oversold: { productId: string; name: string; requested: number; available: number }[];
+  missing: string[];
+}
+
+async function moveStockForOrder(orderId: string, direction: "commit" | "release"): Promise<StockMovement> {
+  return db.runTransaction<StockMovement>(async (tx) => {
+    const orderRef = db.collection("orders").doc(orderId);
+    const orderSnap = await tx.get(orderRef);
+
+    if (!orderSnap.exists) {
+      return { applied: false, reason: "pedido não encontrado", oversold: [], missing: [] };
+    }
+
+    const order = orderSnap.data() as Order & { stockCommitted?: boolean };
+    const alreadyCommitted = order.stockCommitted === true;
+
+    if (direction === "commit" && alreadyCommitted) {
+      return { applied: false, reason: "estoque já baixado antes", oversold: [], missing: [] };
+    }
+    if (direction === "release" && !alreadyCommitted) {
+      return { applied: false, reason: "não havia estoque baixado a devolver", oversold: [], missing: [] };
+    }
+
+    // Pedidos antigos, criados antes de orderItems existir, só têm a lista em
+    // texto — não há como saber o que baixar, então ficam de fora em vez de
+    // adivinhar.
+    const items = order.orderItems || [];
+    if (items.length === 0) {
+      return { applied: false, reason: "pedido sem itens estruturados", oversold: [], missing: [] };
+    }
+
+    // O Firestore exige todas as leituras antes de qualquer escrita.
+    const refs = items.map((item) => db.collection("products").doc(item.productId));
+    const snaps = await tx.getAll(...refs);
+
+    const oversold: StockMovement["oversold"] = [];
+    const missing: string[] = [];
+    const writes: { ref: typeof refs[number]; stock: number }[] = [];
+
+    items.forEach((item, index) => {
+      const snap = snaps[index];
+      if (!snap.exists) {
+        missing.push(item.productId);
+        return;
+      }
+      const current = Number(snap.data()?.stock) || 0;
+      if (direction === "commit") {
+        if (current < item.quantity) {
+          oversold.push({ productId: item.productId, name: item.name, requested: item.quantity, available: current });
+        }
+        writes.push({ ref: refs[index], stock: Math.max(0, current - item.quantity) });
+      } else {
+        writes.push({ ref: refs[index], stock: current + item.quantity });
+      }
+    });
+
+    const now = new Date().toISOString();
+    writes.forEach((write) => tx.update(write.ref, { stock: write.stock, updatedAt: now }));
+    tx.update(orderRef, {
+      stockCommitted: direction === "commit",
+      stockMovedAt: now
+    });
+
+    return { applied: true, oversold, missing };
+  });
+}
+
+/** Baixa o estoque de um pedido pago. Seguro de chamar várias vezes. */
+async function commitStockForOrder(orderId: string): Promise<StockMovement> {
+  return moveStockForOrder(orderId, "commit");
+}
+
+/** Devolve ao estoque os itens de um pedido cancelado ou reembolsado. */
+async function releaseStockForOrder(orderId: string): Promise<StockMovement> {
+  return moveStockForOrder(orderId, "release");
+}
+
+// -------------------------------------------------------------
+// EXPEDIÇÃO
+// -------------------------------------------------------------
+async function updateOrderFulfillment(
+  orderId: string,
+  fields: { fulfillmentStatus: NonNullable<Order["fulfillmentStatus"]>; trackingCode?: string }
+): Promise<void> {
+  await db.collection("orders").doc(orderId).set(
+    {
+      fulfillmentStatus: fields.fulfillmentStatus,
+      ...(fields.trackingCode !== undefined ? { trackingCode: fields.trackingCode } : {}),
+      fulfillmentUpdatedAt: new Date().toISOString()
+    },
+    { merge: true }
+  );
+}
+
 async function saveCustomer(customer: Omit<Customer, "lastOrderAt" | "createdAt">): Promise<void> {
   const id = customer.phone.replace(/\D/g, "") || customer.email.toLowerCase();
   if (!id) return;
@@ -320,6 +432,7 @@ async function saveSubscriptionConfig(config: SubscriptionConfig): Promise<void>
 export {
   setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
   saveOrder, updateOrderPayment, getOrdersFromFirestore,
+  commitStockForOrder, releaseStockForOrder, updateOrderFulfillment,
   saveCustomer, getCustomersFromFirestore,
   saveMessage, getMessagesFromFirestore, markMessageRead,
   getReviewsFromFirestore, setReviewInFirestore, deleteReviewFromFirestore,

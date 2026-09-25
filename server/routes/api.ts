@@ -10,6 +10,7 @@ import { uploadImageBuffer } from '../services/storageService';
 import {
   setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
   saveOrder, saveCustomer, updateOrderPayment, getOrdersFromFirestore, getCustomersFromFirestore,
+  commitStockForOrder, releaseStockForOrder, updateOrderFulfillment,
   saveMessage, getMessagesFromFirestore, markMessageRead,
   getReviewsFromFirestore, setReviewInFirestore, deleteReviewFromFirestore,
   getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
@@ -618,6 +619,27 @@ router.delete("/api/admin/reviews/:id", adminLimiter, requireAdmin, async (req, 
   }
 });
 
+// Expedição: deixa o pedido andar de "aguardando" até "entregue" e guarda o
+// código de rastreio, pra a operação acontecer no painel em vez de na memória
+// de quem embala.
+const FULFILLMENT_STATUSES = ["aguardando", "separando", "postado", "entregue", "cancelado"] as const;
+
+router.put("/api/admin/orders/:id/fulfillment", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const { fulfillmentStatus, trackingCode } = req.body;
+    if (!FULFILLMENT_STATUSES.includes(fulfillmentStatus)) {
+      return res.status(400).json({ error: `Etapa inválida. Use uma de: ${FULFILLMENT_STATUSES.join(", ")}.` });
+    }
+    await updateOrderFulfillment(req.params.id, {
+      fulfillmentStatus,
+      ...(trackingCode !== undefined ? { trackingCode: String(trackingCode).trim().toUpperCase() } : {})
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // -------------------------------------------------------------
 // DIAGNÓSTICO DE INTEGRAÇÕES
 // -------------------------------------------------------------
@@ -764,13 +786,43 @@ router.post("/api/webhooks/mercadopago", async (req, res) => {
     };
     const paymentStatus = statusMap[payment.status || ""] || "Pendente (Mercado Pago)";
 
+    const orderId = payment.external_reference;
+
     await updateOrderPayment({
-      orderId: payment.external_reference,
+      orderId,
       paymentStatus,
       mpPaymentId: String(paymentId)
     });
 
-    console.log(`[Mercado Pago] Pedido ${payment.external_reference} atualizado para "${paymentStatus}".`);
+    console.log(`[Mercado Pago] Pedido ${orderId} atualizado para "${paymentStatus}".`);
+
+    // Estoque acompanha o pagamento: baixa quando entra, devolve quando sai.
+    // As funções são idempotentes, então o reenvio de webhook do Mercado Pago
+    // (que é esperado) não baixa duas vezes.
+    if (paymentStatus === "Pago") {
+      const movement = await commitStockForOrder(orderId);
+      if (movement.applied) {
+        console.log(`[Estoque] Pedido ${orderId}: baixa aplicada.`);
+        // A venda já foi paga — não dá pra desfazer aqui. O aviso existe pra
+        // alguém conferir o físico antes de prometer a entrega.
+        movement.oversold.forEach((item) =>
+          console.warn(`[Estoque] ATENÇÃO pedido ${orderId}: "${item.name}" vendeu ${item.requested} com apenas ${item.available} em estoque.`)
+        );
+        if (movement.missing.length > 0) {
+          console.warn(`[Estoque] Pedido ${orderId}: produto(s) não encontrado(s) no catálogo: ${movement.missing.join(", ")}.`);
+        }
+      } else {
+        console.log(`[Estoque] Pedido ${orderId}: baixa não aplicada (${movement.reason}).`);
+      }
+    } else if (paymentStatus === "Cancelado" || paymentStatus === "Reembolsado") {
+      const movement = await releaseStockForOrder(orderId);
+      console.log(
+        movement.applied
+          ? `[Estoque] Pedido ${orderId}: itens devolvidos ao estoque (${paymentStatus.toLowerCase()}).`
+          : `[Estoque] Pedido ${orderId}: nada a devolver (${movement.reason}).`
+      );
+    }
+
     res.status(200).send("ok");
   } catch (error) {
     console.error("[Mercado Pago] Erro ao processar webhook:", error);

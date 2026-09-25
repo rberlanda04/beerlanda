@@ -45,6 +45,13 @@ export interface Order {
   mpPreferenceId?: string;
   mpPaymentId?: string;
   createdAt?: string;
+  /** Etapa da expedição. Ausente em pedidos antigos — tratar como "aguardando". */
+  fulfillmentStatus?: "aguardando" | "separando" | "postado" | "entregue" | "cancelado";
+  trackingCode?: string;
+  fulfillmentUpdatedAt?: string;
+  /** Marca de que a baixa de estoque deste pedido já foi aplicada. */
+  stockCommitted?: boolean;
+  stockMovedAt?: string;
 }
 
 export interface Customer {
