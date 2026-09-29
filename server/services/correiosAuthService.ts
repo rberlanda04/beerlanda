@@ -12,6 +12,13 @@ interface CachedToken {
 
 let cachedToken: CachedToken | null = null;
 
+// Uma cotação dispara quatro chamadas em paralelo (preço e prazo, de PAC e
+// SEDEX). Todas partem no mesmo instante e todas encontram o cache vazio na
+// primeira rodada, então sem compartilhar a autenticação em voo cada uma abria
+// a sua — quatro tokens por cotação, e risco de bater no limite do endpoint de
+// autenticação dos Correios.
+let inFlight: Promise<CachedToken> | null = null;
+
 async function fetchNewToken(): Promise<CachedToken> {
   const user = process.env.CORREIOS_USER_ID;
   const accessCode = process.env.CORREIOS_ACCESS_CODE;
@@ -54,11 +61,24 @@ async function fetchNewToken(): Promise<CachedToken> {
 }
 
 async function getValidCorreiosToken(forceRefresh = false): Promise<string> {
-  if (!forceRefresh && cachedToken && Date.now() < cachedToken.expiresAt) {
+  if (forceRefresh) cachedToken = null;
+
+  if (cachedToken && Date.now() < cachedToken.expiresAt) {
     return cachedToken.value;
   }
-  cachedToken = await fetchNewToken();
-  return cachedToken.value;
+
+  if (!inFlight) {
+    inFlight = fetchNewToken()
+      .then((token) => {
+        cachedToken = token;
+        return token;
+      })
+      .finally(() => {
+        inFlight = null;
+      });
+  }
+
+  return (await inFlight).value;
 }
 
 export { getValidCorreiosToken };

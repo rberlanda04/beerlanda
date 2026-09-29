@@ -137,18 +137,61 @@ async function fetchServicePrice(
   return parseServiceResponse(data, serviceCode);
 }
 
-// Calcula PAC e SEDEX em paralelo para o peso total do carrinho. Lança erro
-// (nunca inventa um preço) se qualquer uma das chamadas falhar.
+// Preço e prazo são duas APIs distintas dos Correios, com códigos de serviço
+// separados no contrato (38202 API PREÇOS e 38210 API PRAZOS): a resposta de
+// preço traz pcFinal, pcBase e psCobrado, e nenhum campo de prazo. Sem esta
+// segunda chamada o checkout mostraria o valor certo com "0 dias".
+async function fetchServiceDeadline(serviceCode: string, destinationCep: string): Promise<number> {
+  const originCep = process.env.CORREIOS_ORIGIN_CEP!;
+  const token = await getValidCorreiosToken();
+
+  const params = new URLSearchParams({
+    cepOrigem: originCep.replace(/\D/g, ""),
+    cepDestino: destinationCep.replace(/\D/g, "")
+  });
+
+  const response = await fetch(`${CORREIOS_BASE_URL}/prazo/v1/nacional/${serviceCode}?${params}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Api-Key": process.env.CORREIOS_API_KEY!
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Correios respondeu ${response.status} na consulta de prazo do serviço ${serviceCode}: ${(await response.text().catch(() => "")).slice(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const days = parseInt(String(data?.prazoEntrega ?? ""), 10);
+  return Number.isNaN(days) ? 0 : days;
+}
+
+// Calcula PAC e SEDEX em paralelo para o peso total do carrinho. O preço é
+// obrigatório — se ele falhar, lança, porque cobrar frete inventado é pior que
+// não cotar. O prazo é melhor esforço: se a API de prazo falhar (por exemplo,
+// se só o código 38202 estiver liberado no contrato e o 38210 não), a cotação
+// sai com o valor correto e sem estimativa de dias, em vez de não sair.
 async function getShippingOptions(destinationCep: string, totalWeightGrams: number): Promise<ShippingOptions> {
   const weight = Math.max(totalWeightGrams, 50);
   const dims = pickPackageDimensions(weight);
 
-  const [pac, sedex] = await Promise.all([
+  const deadlineOrZero = (serviceCode: string) =>
+    fetchServiceDeadline(serviceCode, destinationCep).catch((error) => {
+      console.warn(`[Correios] Prazo do serviço ${serviceCode} indisponível, seguindo só com o preço:`, error.message);
+      return 0;
+    });
+
+  const [pacPrice, sedexPrice, pacDays, sedexDays] = await Promise.all([
     fetchServicePrice(PAC_CODE, destinationCep, weight, dims),
-    fetchServicePrice(SEDEX_CODE, destinationCep, weight, dims)
+    fetchServicePrice(SEDEX_CODE, destinationCep, weight, dims),
+    deadlineOrZero(PAC_CODE),
+    deadlineOrZero(SEDEX_CODE)
   ]);
 
-  return { pac, sedex };
+  return {
+    pac: { price: pacPrice.price, days: pacPrice.days || pacDays },
+    sedex: { price: sedexPrice.price, days: sedexPrice.days || sedexDays }
+  };
 }
 
 // -------------------------------------------------------------
@@ -249,25 +292,34 @@ async function diagnoseCorreios(): Promise<CorreiosDiagnostic> {
       stage: "autorizacao",
       title: isRestricted ? "Contrato sem a API de preço habilitada" : `Correios respondeu ${response.status}`,
       detail: isRestricted
-        ? `A autenticação funciona (o token foi emitido), mas o contrato do CNPJ ${userId} não tem o produto de API de Preço e Prazo habilitado — é o erro GTW-012.`
+        ? `A autenticação funciona (o token foi emitido), mas o contrato do CNPJ ${userId} não tem o código de serviço 38202 (API PREÇOS) habilitado — é o erro GTW-012.`
         : raw || `HTTP ${response.status} sem corpo.`,
       action: isRestricted
-        ? "Pedir aos Correios a habilitação dos produtos de API no contrato, citando o erro GTW-012 e a resposta abaixo."
+        ? "Pedir à gestão comercial dos Correios a inclusão dos códigos 38202 (API PREÇOS) e 38210 (API PRAZOS) no contrato, anexando a resposta abaixo."
         : "Levar a resposta abaixo ao suporte dos Correios.",
       raw,
       checkedAt
     };
   }
 
-  // 3. Cotação real ponta a ponta.
+  // 3. Cotação real ponta a ponta. O prazo é uma API separada (código 38210),
+  // então pode estar bloqueado mesmo com o preço já liberado — vale distinguir,
+  // porque nesse caso a loja já funciona, só sem estimativa de dias.
   try {
     const quote = await getShippingOptions("01310100", 300);
+    const hasDeadline = quote.pac.days > 0 || quote.sedex.days > 0;
+    const prices = `PAC R$ ${quote.pac.price.toFixed(2)}, SEDEX R$ ${quote.sedex.price.toFixed(2)}`;
+
     return {
       ok: true,
       stage: "cotacao",
-      title: "Frete funcionando",
-      detail: `Cotação de teste (300 g, ${originCep} → 01310-100): PAC R$ ${quote.pac.price.toFixed(2)} em ${quote.pac.days} dia(s), SEDEX R$ ${quote.sedex.price.toFixed(2)} em ${quote.sedex.days} dia(s).`,
-      action: null,
+      title: hasDeadline ? "Frete funcionando" : "Preço funcionando, prazo ainda não",
+      detail: hasDeadline
+        ? `Cotação de teste (300 g, ${originCep} → 01310-100): PAC R$ ${quote.pac.price.toFixed(2)} em ${quote.pac.days} dia(s), SEDEX R$ ${quote.sedex.price.toFixed(2)} em ${quote.sedex.days} dia(s).`
+        : `Cotação de teste (300 g, ${originCep} → 01310-100) retornou os valores — ${prices} — mas sem prazo de entrega. A loja já cobra o frete certo; o checkout só não mostra em quantos dias chega.`,
+      action: hasDeadline
+        ? null
+        : "Pedir aos Correios a inclusão do código de serviço 38210 (API PRAZOS) no contrato — o 38202, de preços, já está ativo.",
       quote,
       checkedAt
     };
