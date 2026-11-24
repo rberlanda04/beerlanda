@@ -336,4 +336,4 @@ async function diagnoseCorreios(): Promise<CorreiosDiagnostic> {
   }
 }
 
-export { getShippingOptions, defaultWeightForCategory, diagnoseCorreios };
+export { getShippingOptions, defaultWeightForCategory, diagnoseCorreios, pickPackageDimensions };

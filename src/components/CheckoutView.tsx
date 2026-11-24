@@ -1,17 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { CartItem, Coupon } from "../types";
+import { CartItem, Coupon, ShippingQuote } from "../types";
 import { formatCurrency, maskPhone, maskCep } from "../utils";
 import { ArrowLeft, AlertCircle, ShoppingBag, Truck, CreditCard, ShieldCheck, RefreshCw, CheckCircle2 } from "lucide-react";
-
-interface ShippingOption {
-  price: number;
-  days: number;
-}
-
-interface ShippingOptions {
-  pac: ShippingOption;
-  sedex: ShippingOption;
-}
 
 interface CheckoutViewProps {
   cartItems: CartItem[];
@@ -37,9 +27,11 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
-  // Estado do cálculo de frete (Correios)
-  const [shippingOptions, setShippingOptions] = useState<ShippingOptions | null>(null);
-  const [selectedShipping, setSelectedShipping] = useState<"pac" | "sedex" | "combinar" | null>(null);
+  // Estado do cálculo de frete. As opções vêm como lista porque o provedor
+  // pode devolver várias transportadoras, não só PAC e SEDEX.
+  const [shippingOptions, setShippingOptions] = useState<ShippingQuote[] | null>(null);
+  // Guarda o id da opção escolhida, ou "combinar" quando a cotação falha.
+  const [selectedShipping, setSelectedShipping] = useState<string | null>(null);
   const [isCalculatingShipping, setIsCalculatingShipping] = useState(false);
   const [shippingError, setShippingError] = useState<string | null>(null);
   const lastCalculatedCep = useRef<string>("");
@@ -68,8 +60,14 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
         setShippingError(data.error || "Não foi possível calcular o frete agora.");
         return;
       }
-      setShippingOptions(data);
-      setSelectedShipping("pac");
+      const quotes: ShippingQuote[] = Array.isArray(data) ? data : [];
+      if (quotes.length === 0) {
+        setShippingError("Nenhuma transportadora atende esse CEP no momento.");
+        return;
+      }
+      setShippingOptions(quotes);
+      // Já vem ordenado da mais barata; pré-seleciona a primeira.
+      setSelectedShipping(quotes[0].id);
     } catch {
       setShippingError("Erro de conexão ao calcular o frete.");
     } finally {
@@ -101,10 +99,9 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
     }
   }
 
-  const shippingCost =
-    (selectedShipping === "pac" || selectedShipping === "sedex") && shippingOptions
-      ? shippingOptions[selectedShipping].price
-      : 0;
+  const chosenQuote = shippingOptions?.find((q) => q.id === selectedShipping) || null;
+  // "Frete a combinar" entra como zero: o valor é acertado depois, fora do pedido.
+  const shippingCost = chosenQuote?.price ?? 0;
   const total = Math.max(0, subtotal - discountAmount + shippingCost);
 
   // Validar formulário
@@ -150,7 +147,9 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
       items: cartItems,
       total,
       shippingCost,
-      shippingService: selectedShipping === "sedex" ? "SEDEX" : selectedShipping === "combinar" ? "A_COMBINAR" : "PAC",
+      // Guarda transportadora e serviço escolhidos, pra expedição saber por
+      // onde despachar — ex: "Jadlog .Package" ou "Correios PAC".
+      shippingService: chosenQuote ? `${chosenQuote.carrier} ${chosenQuote.service}` : "A_COMBINAR",
     };
 
     try {
@@ -495,24 +494,30 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                   </div>
                 ) : shippingOptions ? (
                   <div className="space-y-2">
-                    {(["pac", "sedex"] as const).map((key) => {
-                      const opt = shippingOptions[key];
-                      const isSelected = selectedShipping === key;
+                    {shippingOptions.map((opt) => {
+                      const isSelected = selectedShipping === opt.id;
                       return (
                         <button
                           type="button"
-                          key={key}
-                          onClick={() => setSelectedShipping(key)}
-                          className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-xs cursor-pointer transition-colors ${
+                          key={opt.id}
+                          onClick={() => setSelectedShipping(opt.id)}
+                          className={`w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs cursor-pointer transition-colors ${
                             isSelected ? "border-natural-gold bg-natural-gold/10" : "border-natural-border bg-white hover:bg-natural-card"
                           }`}
                         >
-                          <span className="flex items-center gap-1.5 font-bold text-natural-darkbrown">
-                            {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-natural-gold" />}
-                            {key === "pac" ? "PAC" : "SEDEX"}
-                            <span className="font-normal text-natural-text/60">— até {opt.days} dia{opt.days === 1 ? "" : "s"}</span>
+                          <span className="flex min-w-0 items-center gap-1.5 text-left">
+                            {isSelected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-natural-gold" />}
+                            <span className="min-w-0">
+                              <span className="font-bold text-natural-darkbrown">{opt.service}</span>
+                              <span className="text-natural-text/60"> · {opt.carrier}</span>
+                              {opt.days > 0 && (
+                                <span className="block text-[10px] text-natural-text/60">
+                                  até {opt.days} dia{opt.days === 1 ? "" : "s"} útei{opt.days === 1 ? "l" : "s"}
+                                </span>
+                              )}
+                            </span>
                           </span>
-                          <span className="font-mono font-bold text-natural-darkbrown">{formatCurrency(opt.price)}</span>
+                          <span className="shrink-0 font-mono font-bold text-natural-darkbrown">{formatCurrency(opt.price)}</span>
                         </button>
                       );
                     })}

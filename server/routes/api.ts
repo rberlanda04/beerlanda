@@ -22,7 +22,8 @@ import {
 const FALLBACK_PRODUCT_IMAGE = "https://storage.googleapis.com/beerlanda-product-images/branding/bee-placeholder.svg";
 import { createPaymentPreference, getPaymentDetails } from '../services/mercadoPagoService';
 import { createSubscriptionPlan, getSubscriptionDetails } from '../services/mercadoPagoSubscriptionService';
-import { getShippingOptions, defaultWeightForCategory, diagnoseCorreios } from '../services/correiosService';
+import { defaultWeightForCategory, diagnoseCorreios } from '../services/correiosService';
+import { getShippingQuotes, activeShippingProvider, diagnoseShipping } from '../services/shippingService';
 
 const router = express.Router();
 
@@ -184,9 +185,11 @@ router.post("/api/validate-coupon", publicWriteLimiter, async (req, res) => {
   }
 });
 
-// Cálculo de frete real (Correios): PAC + SEDEX pro CEP de destino, a partir
-// do peso total do carrinho. Nunca inventa um valor — se a API falhar, o
-// frontend recebe um erro claro pra mostrar "tentar novamente".
+// Cálculo de frete real pro CEP de destino, a partir do peso e do valor do
+// carrinho. Quem responde é o provedor ativo (Melhor Envio ou Correios
+// direto) — a rota não precisa saber qual. Nunca inventa um valor: se a
+// cotação falhar, o frontend recebe um erro claro pra oferecer "tentar
+// novamente" ou seguir com frete a combinar.
 router.post("/api/shipping/calculate", shippingLimiter, async (req, res) => {
   const { cep, items } = req.body;
 
@@ -197,18 +200,23 @@ router.post("/api/shipping/calculate", shippingLimiter, async (req, res) => {
   try {
     const products = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
 
-    const totalWeightGrams = items.reduce((sum: number, item: any) => {
-      const product = products.find(p => p.id === item.productId);
-      const weight = product?.weightGrams ?? defaultWeightForCategory(product?.category || "");
-      return sum + weight * (Number(item.quantity) || 1);
-    }, 0);
+    let totalWeightGrams = 0;
+    let declaredValue = 0;
 
-    const options = await getShippingOptions(cep, totalWeightGrams);
-    res.json(options);
+    for (const item of items) {
+      const quantity = Number(item.quantity) || 1;
+      const product = products.find(p => p.id === item.productId);
+      totalWeightGrams += (product?.weightGrams ?? defaultWeightForCategory(product?.category || "")) * quantity;
+      // Valor segurado: o que a transportadora cobre em caso de extravio.
+      declaredValue += (product?.promoPrice ?? product?.price ?? 0) * quantity;
+    }
+
+    const quotes = await getShippingQuotes({ destinationCep: cep, totalWeightGrams, declaredValue });
+    res.json(quotes);
   } catch (error: any) {
-    // Detalhe técnico (ex: mensagem crua da API dos Correios) só no log do
+    // Detalhe técnico (ex: resposta crua da transportadora) só no log do
     // servidor — o cliente recebe uma mensagem genérica e acionável.
-    console.error("[Correios] Falha ao calcular frete:", error.message);
+    console.error(`[Frete/${activeShippingProvider()}] Falha ao calcular:`, error.message);
     res.status(502).json({ error: "Não foi possível calcular o frete agora. Tente novamente em instantes ou fale com a gente." });
   }
 });
@@ -654,6 +662,16 @@ router.get("/api/admin/correios/status", adminLimiter, requireAdmin, async (req,
   }
 });
 
+// Cotação de teste pelo provedor que está ativo de verdade (Melhor Envio ou
+// Correios direto) — é o que diz se o checkout consegue cotar frete hoje.
+router.get("/api/admin/frete/status", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    res.json(await diagnoseShipping());
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 4. Checkout - Registra o Pedido e Gera o Link de Pagamento (Mercado Pago)
 router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
   const { clientName, phone, email, address, items, total, shippingCost, shippingService } = req.body;
@@ -687,7 +705,9 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
     orderItems,
     total,
     shippingCost: Number(shippingCost) || 0,
-    shippingService: shippingService === "SEDEX" ? "SEDEX" : shippingService === "A_COMBINAR" ? "A_COMBINAR" : "PAC",
+    // Guarda exatamente o que o cliente escolheu ("Jadlog .Package",
+    // "Correios SEDEX"...) — a expedição precisa saber por onde despachar.
+    shippingService: String(shippingService || "A_COMBINAR").slice(0, 60),
     paymentStatus: "Pendente (Mercado Pago)",
     paymentMethod: "mercadopago"
   };

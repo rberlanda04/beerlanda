@@ -28,8 +28,24 @@ const STAGES: { id: Stage; label: string; hint: string }[] = [
   { id: "cotacao", label: "Cotação", hint: "Uma cotação real de teste volta com valor" }
 ];
 
+interface ShippingDiagnostic {
+  ok: boolean;
+  provider: "melhor-envio" | "correios";
+  title: string;
+  detail: string;
+  action: string | null;
+  raw?: string;
+  checkedAt: string;
+}
+
+const PROVIDER_LABEL: Record<ShippingDiagnostic["provider"], string> = {
+  "melhor-envio": "Melhor Envio",
+  correios: "Correios (contrato próprio)"
+};
+
 export default function AdminIntegracoes({ token }: AdminIntegracoesProps) {
   const [status, setStatus] = useState<CorreiosDiagnostic | null>(null);
+  const [frete, setFrete] = useState<ShippingDiagnostic | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -37,9 +53,17 @@ export default function AdminIntegracoes({ token }: AdminIntegracoesProps) {
   const check = () => {
     setIsChecking(true);
     setError(null);
-    adminFetch<CorreiosDiagnostic>("/api/admin/correios/status", token)
-      .then(setStatus)
-      .catch((e) => setError(e.message))
+    Promise.allSettled([
+      adminFetch<ShippingDiagnostic>("/api/admin/frete/status", token),
+      adminFetch<CorreiosDiagnostic>("/api/admin/correios/status", token)
+    ])
+      .then(([freteResult, correiosResult]) => {
+        if (freteResult.status === "fulfilled") setFrete(freteResult.value);
+        if (correiosResult.status === "fulfilled") setStatus(correiosResult.value);
+        if (freteResult.status === "rejected" && correiosResult.status === "rejected") {
+          setError(String((freteResult.reason as Error)?.message || "Falha ao consultar o status."));
+        }
+      })
       .finally(() => setIsChecking(false));
   };
 
@@ -77,6 +101,33 @@ export default function AdminIntegracoes({ token }: AdminIntegracoesProps) {
         <div className="p-5 space-y-5">
           {error && (
             <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2.5">{error}</p>
+          )}
+
+          {/* Cotação pelo provedor que está realmente ativo — é o que decide
+              se o checkout consegue cotar frete hoje. */}
+          {frete && (
+            <div className={`rounded-xl border p-4 ${frete.ok ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className={`text-sm font-bold inline-flex items-center gap-2 ${frete.ok ? "text-green-900" : "text-amber-900"}`}>
+                  {frete.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                  {frete.title}
+                </p>
+                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-natural-text">
+                  via {PROVIDER_LABEL[frete.provider]}
+                </span>
+              </div>
+              <p className={`mt-1.5 text-xs leading-relaxed ${frete.ok ? "text-green-900/80" : "text-amber-900/80"}`}>
+                {frete.detail}
+              </p>
+              {frete.action && (
+                <p className="mt-2.5 text-xs font-semibold text-amber-900">Próximo passo: {frete.action}</p>
+              )}
+              {frete.ok && frete.raw && (
+                <pre className="mt-3 overflow-x-auto rounded-lg bg-white/60 p-2.5 text-[10px] leading-relaxed text-natural-text whitespace-pre-wrap">
+                  {frete.raw}
+                </pre>
+              )}
+            </div>
           )}
 
           {isChecking && !status ? (

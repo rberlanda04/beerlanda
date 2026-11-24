@@ -39,7 +39,13 @@ export interface Order {
   orderItems?: OrderItem[]; // Structured line items (only present on orders created after this field was added)
   total: number;
   shippingCost?: number;
-  shippingService?: "PAC" | "SEDEX" | "A_COMBINAR";
+  /**
+   * Transportadora e serviço escolhidos, como texto livre — ex: "Correios PAC",
+   * "Jadlog .Package" — ou "A_COMBINAR" quando a cotação não saiu. Deixou de
+   * ser uma lista fechada quando o frete passou a vir de um agregador, que
+   * responde com transportadoras que não dá pra enumerar de antemão.
+   */
+  shippingService?: string;
   paymentStatus: string;
   paymentMethod?: "mercadopago";
   mpPreferenceId?: string;
@@ -88,6 +94,26 @@ export interface AnalyticsData {
   ordersByStatus: { status: string; count: number }[];
   topProducts: { name: string; quantity: number; revenue: number }[];
   newCustomersByDay: { date: string; count: number }[];
+}
+
+/**
+ * Uma opção de frete cotada, vinda de qualquer transportadora.
+ *
+ * Antes o cálculo devolvia uma estrutura fixa com PAC e SEDEX, porque a API
+ * dos Correios só responde por um serviço de cada vez. Agregadores devolvem
+ * uma lista variável — Correios, Jadlog, Azul e outras no mesmo retorno —,
+ * então o checkout passa a renderizar o que vier em vez de dois blocos fixos.
+ */
+export interface ShippingQuote {
+  /** Identificador estável desta opção, usado na seleção do checkout. */
+  id: string;
+  /** Nome do serviço: "PAC", "SEDEX", ".Package". */
+  service: string;
+  /** Transportadora: "Correios", "Jadlog". */
+  carrier: string;
+  price: number;
+  /** Prazo em dias úteis. 0 quando a transportadora não informa. */
+  days: number;
 }
 
 export interface Review {
