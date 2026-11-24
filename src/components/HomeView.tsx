@@ -414,7 +414,13 @@ export default function HomeView({ products, reviews, onSelectProduct, onSelectC
           </h2>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {/* O grid acompanha quantas avaliações existem de verdade: com duas,
+            quatro colunas fixas deixavam metade da faixa vazia. */}
+        <div
+          className={`mx-auto grid max-w-5xl grid-cols-1 gap-6 sm:grid-cols-2 ${
+            reviews.length >= 4 ? "lg:max-w-none lg:grid-cols-4" : reviews.length === 3 ? "lg:grid-cols-3" : ""
+          }`}
+        >
           {reviews.slice(0, 4).map((rev) => (
             <div
               key={rev.id}

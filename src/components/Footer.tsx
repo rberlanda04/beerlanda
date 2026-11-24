@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ShieldCheck, Truck, RefreshCw, Heart, Leaf, Rabbit, Instagram, Mail, MessageSquare, Clock, Droplet, Flame, Waves, Package, Zap, Gift } from "lucide-react";
+import { Truck, RefreshCw, Heart, Leaf, Rabbit, Instagram, Mail, MessageSquare, Clock, Droplet, Flame, Waves, Package, Zap, Gift } from "lucide-react";
 import logoImg from "../assets/images/logo.png";
 import ContactForm from "./ContactForm";
 
@@ -21,7 +21,10 @@ export default function Footer({ appConfig }: FooterProps) {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 
         {/* Grid de Diferenciais de Compra */}
-        <div className="grid grid-cols-1 gap-6 border-b border-brand-200/30 pb-10 md:grid-cols-3">
+        {/* Dois selos, não três: "Origem Rastreável" saiu a pedido da Beerlanda
+            (Arrumar no site, 18/08/2026) — o ateliê compra de pequenos produtores
+            e não tem certificado de rastreabilidade pra sustentar a promessa. */}
+        <div className="grid grid-cols-1 gap-6 border-b border-brand-200/30 pb-10 md:grid-cols-2">
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-200 text-brand-700">
               <Truck className="h-5 w-5" />
@@ -29,16 +32,6 @@ export default function Footer({ appConfig }: FooterProps) {
             <div>
               <h4 className="font-display font-semibold text-charcoal-900">Entrega Rápida e Segura</h4>
               <p className="text-xs text-charcoal-900/70 mt-1">Envios para todo o Brasil via correios ou retirada à combinar em Curitiba e região.</p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-200 text-brand-700">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <h4 className="font-display font-semibold text-charcoal-900">Origem Rastreável</h4>
-              <p className="text-xs text-charcoal-900/70 mt-1">Nossos produtos vêm de apiários sustentáveis. Garantia de mel puro sem aditivos.</p>
             </div>
           </div>
 
@@ -65,7 +58,7 @@ export default function Footer({ appConfig }: FooterProps) {
               </span>
             </div>
             <p className="text-xs text-charcoal-900/60 leading-relaxed inline-flex flex-wrap items-center gap-1">
-              Produtos artesanais que têm as abelhas como inspiração: mel, própolis e presentes de forma pura em cada um de nossos produtos, feito um por um à mão
+              Produtos artesanais que têm as abelhas como inspiração: mel, própolis e cera presentes de forma pura em cada um de nossos produtos, feito um por um à mão
               <Heart className="h-3 w-3 text-red-500 fill-red-500" />
             </p>
             <div className="mt-2 flex gap-2">
