@@ -455,7 +455,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                   <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5">
                     <p className="flex items-center gap-1.5 text-[11px] text-amber-800 font-medium">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      Frete a combinar — vamos calcular e enviar o valor por WhatsApp/Instagram antes do envio.
+                      Frete a combinar — entramos em contato pelo e-mail ou telefone informados para acertar o valor antes do envio.
                     </p>
                     <button
                       type="button"
