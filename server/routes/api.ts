@@ -16,7 +16,7 @@ import {
   saveMessage, getMessagesFromFirestore, markMessageRead,
   getReviewsFromFirestore, setReviewInFirestore, deleteReviewFromFirestore,
   getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
-  getDashboardStats, getAnalyticsData,
+  getDashboardStats, getAnalyticsData, recordVisit,
   saveSubscriber, updateSubscriberStatusById, getSubscribersFromFirestore, getInterestedCount, getCategoryVotes,
   getMonthlyCollection, saveMonthlyCollection, getSubscriptionConfig, saveSubscriptionConfig
 } from '../services/firestoreService';
@@ -24,8 +24,8 @@ import {
 const FALLBACK_PRODUCT_IMAGE = "https://storage.googleapis.com/beerlanda-product-images/branding/bee-placeholder.svg";
 import { createPaymentPreference, getPaymentDetails } from '../services/mercadoPagoService';
 import { createSubscriptionPlan, getSubscriptionDetails } from '../services/mercadoPagoSubscriptionService';
-import { defaultWeightForCategory, diagnoseCorreios } from '../services/correiosService';
-import { getShippingQuotes, activeShippingProvider, diagnoseShipping } from '../services/shippingService';
+import { defaultWeightForCategory } from '../services/packagingService';
+import { getShippingQuotes, diagnoseShipping } from '../services/shippingService';
 import { lookupCep } from '../services/cepService';
 import { sendEmail, sendBulk, isEmailConfigured, verifyEmailConnection } from '../services/emailService';
 import {
@@ -73,6 +73,19 @@ const shippingLimiter = rateLimit({
   message: { error: "Muitas requisições. Tente novamente em alguns minutos." }
 });
 
+// Contagem de acesso: uma pessoa pode abrir várias abas, e numa rede
+// compartilhada (café, família) várias pessoas saem do mesmo IP. O limite é
+// generoso porque bloquear aqui não protege nada — só apaga métrica. Ainda
+// assim existe, pra ninguém usar a rota como gerador de escrita no Firestore.
+const trackLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Estourar o limite não é erro pro visitante: a página não deve mostrar nada.
+  message: {}
+});
+
 // Limite extra nas rotas admin, além do allowlist de e-mail, contra tentativas repetidas.
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -96,6 +109,15 @@ router.get("/api/config", (req, res) => {
     whatsappNumber: (process.env.WHATSAPP_NUMBER || "").replace(/\D/g, ""),
     pickupCity: process.env.PICKUP_CITY || "Curitiba e região"
   });
+});
+
+// Contagem de acesso à loja. O navegador chama uma vez por sessão; o corpo da
+// requisição é ignorado de propósito, então não há nada que alguém possa
+// mandar daqui pra inflar ou sujar o número além da própria visita. Responde
+// 204 sem conteúdo: é métrica, o frontend não espera nada de volta.
+router.post("/api/track/visit", trackLimiter, async (req, res) => {
+  await recordVisit();
+  res.status(204).end();
 });
 
 // Formulário de contato: perguntas gerais chegam aqui em vez de WhatsApp.
@@ -198,10 +220,10 @@ router.post("/api/validate-coupon", publicWriteLimiter, async (req, res) => {
 });
 
 // Cálculo de frete real pro CEP de destino, a partir do peso e do valor do
-// carrinho. Quem responde é o provedor ativo (Melhor Envio ou Correios
-// direto) — a rota não precisa saber qual. Nunca inventa um valor: se a
-// cotação falhar, o frontend recebe um erro claro pra oferecer "tentar
-// novamente" ou seguir com frete a combinar.
+// carrinho. Quem cota é o Melhor Envio, que devolve Correios, Jadlog e outras
+// na mesma lista. Nunca inventa um valor: se a cotação falhar, o frontend
+// recebe um erro claro pra oferecer "tentar novamente" ou seguir com frete a
+// combinar.
 // Auto-preenchimento do endereço no checkout: a cliente digita só o CEP e o
 // número. Cada campo a menos pra digitar no celular é carrinho que não é
 // abandonado — e o endereço vem padronizado, sem erro de digitação que
@@ -245,7 +267,7 @@ router.post("/api/shipping/calculate", shippingLimiter, async (req, res) => {
   } catch (error: any) {
     // Detalhe técnico (ex: resposta crua da transportadora) só no log do
     // servidor — o cliente recebe uma mensagem genérica e acionável.
-    console.error(`[Frete/${activeShippingProvider()}] Falha ao calcular:`, error.message);
+    console.error("[Frete/melhor-envio] Falha ao calcular:", error.message);
     res.status(502).json({ error: "Não foi possível calcular o frete agora. Tente novamente em instantes ou fale com a gente." });
   }
 });
@@ -693,9 +715,9 @@ router.put("/api/admin/orders/:id/fulfillment", adminLimiter, requireAdmin, asyn
 // -------------------------------------------------------------
 // DIAGNÓSTICO DE INTEGRAÇÕES
 // -------------------------------------------------------------
-// Deixa o próprio time conferir em que pé está a integração dos Correios sem
-// depender de ninguém rodar script: útil justamente enquanto a liberação do
-// contrato está pendente, pra saber na hora quando ela sair.
+// Deixa o próprio time conferir em que pé estão as integrações sem depender de
+// ninguém rodar script: dá pra ver na hora se o frete, o pagamento e o e-mail
+// estão de pé.
 // -------------------------------------------------------------
 // E-MAIL: DIAGNÓSTICO, RESPOSTA MANUAL E CAMPANHA
 // -------------------------------------------------------------
@@ -855,16 +877,8 @@ router.get("/descadastrar", async (req, res) => {
 </div></body></html>`);
 });
 
-router.get("/api/admin/correios/status", adminLimiter, requireAdmin, async (req, res) => {
-  try {
-    res.json(await diagnoseCorreios());
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Cotação de teste pelo provedor que está ativo de verdade (Melhor Envio ou
-// Correios direto) — é o que diz se o checkout consegue cotar frete hoje.
+// Cotação de teste no Melhor Envio — é o que diz se o checkout consegue cotar
+// frete hoje, antes de uma cliente descobrir que não consegue.
 router.get("/api/admin/frete/status", adminLimiter, requireAdmin, async (req, res) => {
   try {
     res.json(await diagnoseShipping());

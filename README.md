@@ -2,7 +2,7 @@
 
 E-commerce de produtos artesanais (sabonetes, bálsamos, velas e sais), com catálogo, cupons, avaliações e
 o Clube da Colmeia (assinatura recorrente) — checkout via Mercado Pago (cartão e Pix) e frete calculado
-pela API dos Correios.
+pelo Melhor Envio.
 
 ## Stack
 
@@ -11,7 +11,7 @@ pela API dos Correios.
 - **Dados:** Firestore (Firebase Admin SDK) — única fonte de dados de produtos, cupons, avaliações, pedidos, clientes, assinantes e mensagens
 - **Auth admin:** Firebase Auth (Google Sign-In); o portal `/admin` só libera acesso a e-mails listados em `ADMIN_EMAILS`
 - **Pagamento:** Mercado Pago (Checkout Pro para compra avulsa, PreApproval para assinaturas recorrentes)
-- **Frete:** API REST dos Correios, com renovação automática de token
+- **Frete:** Melhor Envio (agregador: cota Correios, Jadlog, Azul e outras numa chamada)
 - **Imagens:** Google Cloud Storage
 - **Deploy:** Google Cloud Run (ver `Dockerfile`), build via Cloud Build
 
@@ -24,8 +24,9 @@ server/services/firestoreService.ts     # toda a leitura/escrita no Firestore
 server/services/googleService.ts        # autenticação admin (verifica o token Google contra ADMIN_EMAILS)
 server/services/mercadoPagoService.ts   # Checkout Pro (compra avulsa)
 server/services/mercadoPagoSubscriptionService.ts  # PreApproval (Clube da Colmeia)
-server/services/correiosService.ts      # cálculo de frete (PAC/SEDEX)
-server/services/correiosAuthService.ts  # renovação automática do token Bearer dos Correios
+server/services/shippingService.ts      # cotação de frete e diagnóstico do painel
+server/services/melhorEnvioService.ts   # chamada ao agregador
+server/services/packagingService.ts     # peso padrão por categoria e escolha de caixa
 server/services/storageService.ts       # upload de imagens de produto pro Cloud Storage
 server/data/mock.ts                     # dados de fallback só usados se o Firestore estiver vazio
 src/                                     # frontend React
@@ -40,7 +41,7 @@ src/lib/googleAuth.ts                   # sign-in Google (Firebase Auth) para o 
    npm install
    ```
 2. Copie `.env.example` para `.env` e preencha com os valores reais (credenciais do Mercado Pago, dos
-   Correios, bucket do Cloud Storage, e-mails de admin). **Nunca commite o `.env`.**
+   Melhor Envio, bucket do Cloud Storage, e-mails de admin). **Nunca commite o `.env`.**
 3. Ajuste `firebase-applet-config.json` se for usar um projeto Firebase diferente do padrão.
 4. Rode o servidor de desenvolvimento:
    ```
@@ -64,8 +65,8 @@ planilha externa: o admin cria/edita tudo pela própria interface, incluindo upl
 
 ```
 gcloud run deploy beerlanda --source . --region <region> --allow-unauthenticated \
-  --set-env-vars ADMIN_EMAILS="...",CONTACT_EMAIL="...",CORREIOS_ORIGIN_CEP="...",CORREIOS_USER_ID="..." \
-  --set-secrets MERCADOPAGO_ACCESS_TOKEN=MERCADOPAGO_ACCESS_TOKEN:latest,CORREIOS_API_KEY=CORREIOS_API_KEY:latest
+  --set-env-vars ADMIN_EMAILS="...",CONTACT_EMAIL="...",ORIGIN_CEP="...",WHATSAPP_NUMBER="..." \
+  --set-secrets MERCADOPAGO_ACCESS_TOKEN=MERCADOPAGO_ACCESS_TOKEN:latest,MELHOR_ENVIO_TOKEN=MELHOR_ENVIO_TOKEN:latest
 ```
 
 O `Dockerfile` builda o frontend (Vite) e o servidor (esbuild) e serve tudo via Express; Cloud Build cuida
@@ -85,5 +86,6 @@ Firebase Hosting (que faz proxy pro serviço do Cloud Run — ver `firebase.json
      `beerlanda`, e manter os domínios de produção em Authorized domains.
   2. O `accessToken` OAuth usado pelo login do admin expira (~1h) e não é renovado automaticamente — a
      conta precisa logar de novo quando expirar.
-  3. O produto de API "Preço e Prazo" dos Correios precisa estar liberado no contrato vinculado a
-     `CORREIOS_USER_ID` para o cálculo de frete funcionar — não é algo que o código controla.
+  3. O token do Melhor Envio (`MELHOR_ENVIO_TOKEN`) expira a cada 30 dias e precisa ser gerado de novo
+     no painel deles. Sem ele a cotação devolve 401 e o checkout cai no "frete a combinar" — o painel
+     admin, em Integrações, mostra isso na hora.

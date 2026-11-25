@@ -1,5 +1,5 @@
 import { initializeApp, getApps, applicationDefault, cert } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats, DashboardAlert, AnalyticsData, Subscriber, SubscriptionTier, MonthlyCollection, SubscriptionConfig, Review } from "../../src/types";
 import { randomUUID } from "crypto";
 import { getServiceAccountCredentials } from "./gcpCredentials";
@@ -349,14 +349,95 @@ async function deleteCouponFromFirestore(code: string): Promise<void> {
 }
 
 // -------------------------------------------------------------
+// ACESSOS AO SITE
+// -------------------------------------------------------------
+// Contador próprio de visitas, um documento por dia. Existe porque o GA4 já
+// está no site mas não dá para ler de dentro do painel sem liberar a conta de
+// serviço na propriedade do Analytics — e o número de quem entrou na loja é
+// justamente o que falta para saber se "pouca venda" é pouca visita ou visita
+// que não converte.
+//
+// Conta SESSÃO, não clique: uma visita por aba aberta. O ping sai do navegador,
+// então robô que não executa JavaScript não entra na conta — o que é bom, é
+// gente que a gente quer medir.
+
+/** Data no fuso de Brasília, em YYYY-MM-DD. O dia da loja, não o do servidor. */
+function diaBR(date: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
+/**
+ * Soma uma visita ao dia de hoje. Nunca lança: se o contador falhar, a loja
+ * continua funcionando — perder uma métrica não pode custar uma venda.
+ */
+async function recordVisit(): Promise<void> {
+  const dia = diaBR();
+  try {
+    await db.collection("visits").doc(dia).set(
+      {
+        date: dia,
+        sessions: FieldValue.increment(1),
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+  } catch (error: any) {
+    console.warn("[Visitas] Falha ao registrar acesso:", error.message);
+  }
+}
+
+interface VisitTotals {
+  today: number;
+  last30: number;
+  prev30: number;
+  byDay: { date: string; sessions: number }[];
+}
+
+/** Lê os últimos 60 dias de contagem: 30 para mostrar, 30 para comparar. */
+async function getVisitTotals(): Promise<VisitTotals> {
+  const vazio: VisitTotals = { today: 0, last30: 0, prev30: 0, byDay: [] };
+  const DAY = 24 * 60 * 60 * 1000;
+  const hoje = diaBR();
+  const corte60 = diaBR(new Date(Date.now() - 60 * DAY));
+  const corte30 = diaBR(new Date(Date.now() - 30 * DAY));
+
+  try {
+    const snap = await db.collection("visits").where("date", ">=", corte60).get();
+    const dias = snap.docs
+      .map((d) => d.data() as { date?: string; sessions?: number })
+      .filter((v) => typeof v.date === "string")
+      .map((v) => ({ date: v.date as string, sessions: Number(v.sessions) || 0 }));
+
+    const soma = (list: typeof dias) => list.reduce((acc, v) => acc + v.sessions, 0);
+    const ultimos30 = dias.filter((v) => v.date >= corte30);
+
+    return {
+      today: dias.find((v) => v.date === hoje)?.sessions ?? 0,
+      last30: soma(ultimos30),
+      prev30: soma(dias.filter((v) => v.date < corte30)),
+      byDay: ultimos30.sort((a, b) => a.date.localeCompare(b.date))
+    };
+  } catch (error: any) {
+    console.warn("[Visitas] Falha ao ler contagem de acessos:", error.message);
+    return vazio;
+  }
+}
+
+// -------------------------------------------------------------
 // DASHBOARD
 // -------------------------------------------------------------
 async function getDashboardStats(): Promise<DashboardStats> {
-  const [ordersSnap, customersSnap, productsSnap, unreadSnap] = await Promise.all([
+  const [ordersSnap, customersSnap, productsSnap, unreadSnap, visits] = await Promise.all([
     db.collection("orders").orderBy("createdAt", "desc").get(),
     db.collection("customers").get(),
     db.collection("products").get(),
-    db.collection("messages").where("read", "==", false).get()
+    db.collection("messages").where("read", "==", false).get(),
+    getVisitTotals()
   ]);
 
   const orders = ordersSnap.docs.map((d) => d.data() as Order);
@@ -447,6 +528,16 @@ async function getDashboardStats(): Promise<DashboardStats> {
       goTo: "orders"
     });
   }
+  // Visita que não vira pedido é problema de loja, não de divulgação. Só vale
+  // dizer isso quando há visita suficiente pra conclusão não ser chute.
+  if (visits.last30 >= 50 && paid30.length === 0) {
+    alerts.push({
+      level: "atencao",
+      title: `${visits.last30} acessos em 30 dias e nenhuma venda`,
+      detail: "Chega gente na loja e ninguém fecha. Olhe foto, preço e frete antes de gastar com divulgação.",
+      goTo: "products"
+    });
+  }
 
   return {
     totalOrders: orders.length,
@@ -462,6 +553,10 @@ async function getDashboardStats(): Promise<DashboardStats> {
     orders30d: paid30.length,
     ordersPrev30d: paidPrev30.length,
     averageTicket: approved.length > 0 ? sum(approved) / approved.length : 0,
+    visitsToday: visits.today,
+    visits30d: visits.last30,
+    visitsPrev30d: visits.prev30,
+    visitsByDay: visits.byDay,
     awaitingShipment,
     stalePending,
     outOfStock,
@@ -716,7 +811,7 @@ export {
   saveMessage, getMessagesFromFirestore, markMessageRead,
   getReviewsFromFirestore, setReviewInFirestore, deleteReviewFromFirestore,
   getCouponsFromFirestore, setCouponInFirestore, deleteCouponFromFirestore,
-  getDashboardStats, getAnalyticsData,
+  getDashboardStats, getAnalyticsData, recordVisit,
   saveSubscriber, setSubscriberPreapproval, updateSubscriberStatusById, getSubscribersFromFirestore, getInterestedCount, getCategoryVotes,
   getMonthlyCollection, saveMonthlyCollection, getSubscriptionConfig, saveSubscriptionConfig
 };

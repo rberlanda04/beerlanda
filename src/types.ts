@@ -102,6 +102,18 @@ export interface DashboardStats {
   ordersPrev30d: number;
   /** Valor médio dos pedidos pagos. */
   averageTicket: number;
+
+  /**
+   * Acessos à loja, contados por sessão (uma visita por aba aberta). Vêm do
+   * contador próprio no Firestore, não do Google Analytics — o GA4 segue no
+   * site para análise detalhada, mas não é legível de dentro do painel.
+   * Visitas ao próprio /admin não entram na conta.
+   */
+  visitsToday: number;
+  visits30d: number;
+  visitsPrev30d: number;
+  /** Acessos por dia nos últimos 30 dias, em ordem crescente de data. */
+  visitsByDay: { date: string; sessions: number }[];
   /** Pagos que ainda não foram postados — a fila de trabalho do dia. */
   awaitingShipment: number;
   /** Pagamentos pendentes criados há mais de 48h: provavelmente não vão entrar. */
@@ -147,10 +159,9 @@ export interface AnalyticsData {
 /**
  * Uma opção de frete cotada, vinda de qualquer transportadora.
  *
- * Antes o cálculo devolvia uma estrutura fixa com PAC e SEDEX, porque a API
- * dos Correios só responde por um serviço de cada vez. Agregadores devolvem
- * uma lista variável — Correios, Jadlog, Azul e outras no mesmo retorno —,
- * então o checkout passa a renderizar o que vier em vez de dois blocos fixos.
+ * A lista é variável: o Melhor Envio devolve Correios, Jadlog, Azul e outras no
+ * mesmo retorno, e quais aparecem depende do CEP e do peso. Por isso o checkout
+ * renderiza o que vier em vez de blocos fixos por serviço.
  */
 export interface ShippingQuote {
   /** Identificador estável desta opção, usado na seleção do checkout. */

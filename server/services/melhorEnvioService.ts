@@ -55,13 +55,16 @@ function parsePrice(raw: unknown): number {
  */
 async function quoteViaMelhorEnvio(input: QuoteInput): Promise<ShippingQuote[]> {
   const token = process.env.MELHOR_ENVIO_TOKEN;
-  const originCep = process.env.CORREIOS_ORIGIN_CEP;
+  // CORREIOS_ORIGIN_CEP é o nome antigo, de quando a cotação era direto nos
+  // Correios. Fica como reserva para não derrubar o frete se o ambiente ainda
+  // não tiver a variável nova.
+  const originCep = process.env.ORIGIN_CEP || process.env.CORREIOS_ORIGIN_CEP;
 
   if (!token) {
     throw new Error("MELHOR_ENVIO_TOKEN não configurado.");
   }
   if (!originCep) {
-    throw new Error("CORREIOS_ORIGIN_CEP não configurado (é o CEP de origem dos envios).");
+    throw new Error("ORIGIN_CEP não configurado (é o CEP de origem dos envios).");
   }
 
   const body = {

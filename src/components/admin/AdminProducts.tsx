@@ -378,7 +378,7 @@ export default function AdminProducts({ token }: AdminProductsProps) {
                   onChange={(e) => setForm({ ...form, weightGrams: e.target.value })}
                   className="w-full rounded-lg border border-natural-border px-3 py-2 text-xs"
                 />
-                <p className="mt-1 text-[10px] text-natural-text/60">Usado para calcular o frete dos Correios no checkout. Se deixar em branco, um peso padrão da categoria é usado.</p>
+                <p className="mt-1 text-[10px] text-natural-text/60">Usado para calcular o frete no checkout. Se deixar em branco, um peso padrão da categoria é usado.</p>
               </div>
 
               <div>

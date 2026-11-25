@@ -1,26 +1,13 @@
-// Escolhe de onde vem a cotação de frete e entrega sempre o mesmo formato
-// para o resto do app.
+// Cotação de frete da loja. Entrega sempre o mesmo formato para o resto do app.
 //
-// Existem dois caminhos porque eles servem a momentos diferentes do negócio:
-//
-// - Melhor Envio (padrão quando há token): agregador com tarifa negociada,
-//   não exige contrato próprio, e devolve Correios junto com Jadlog, Azul e
-//   outras. É o que permite a loja cotar frete sem depender de liberação de
-//   contrato.
-// - Correios direto: usa o contrato próprio da Beerlanda. Em volume maior a
-//   tarifa do contrato pode superar a do agregador, então a integração fica
-//   pronta para voltar a ser a preferida — basta remover o token do Melhor
-//   Envio do ambiente.
+// A loja cota pelo Melhor Envio: uma chamada devolve Correios, Jadlog, Azul e
+// outras com tarifa negociada, sem depender de contrato próprio com nenhuma
+// transportadora. A cliente continua vendo "Correios PAC" ou "Correios SEDEX"
+// na lista quando é por lá que sai mais barato — o que mudou é só quem cota.
 
 import { ShippingQuote } from "../../src/types";
-import { getShippingOptions as getCorreiosOptions, pickPackageDimensions } from "./correiosService";
+import { pickPackageDimensions } from "./packagingService";
 import { quoteViaMelhorEnvio } from "./melhorEnvioService";
-
-export type ShippingProvider = "melhor-envio" | "correios";
-
-export function activeShippingProvider(): ShippingProvider {
-  return process.env.MELHOR_ENVIO_TOKEN ? "melhor-envio" : "correios";
-}
 
 export interface QuoteRequest {
   destinationCep: string;
@@ -35,28 +22,18 @@ export interface QuoteRequest {
  */
 export async function getShippingQuotes(request: QuoteRequest): Promise<ShippingQuote[]> {
   const weight = Math.max(request.totalWeightGrams, 50);
-  const dimensions = pickPackageDimensions(weight);
 
-  if (activeShippingProvider() === "melhor-envio") {
-    return quoteViaMelhorEnvio({
-      destinationCep: request.destinationCep,
-      totalWeightGrams: weight,
-      declaredValue: request.declaredValue,
-      dimensions
-    });
-  }
-
-  // Correios direto: dois serviços fixos, adaptados para a mesma lista.
-  const correios = await getCorreiosOptions(request.destinationCep, weight);
-  return [
-    { id: "pac", service: "PAC", carrier: "Correios", price: correios.pac.price, days: correios.pac.days },
-    { id: "sedex", service: "SEDEX", carrier: "Correios", price: correios.sedex.price, days: correios.sedex.days }
-  ].sort((a, b) => a.price - b.price);
+  return quoteViaMelhorEnvio({
+    destinationCep: request.destinationCep,
+    totalWeightGrams: weight,
+    declaredValue: request.declaredValue,
+    dimensions: pickPackageDimensions(weight)
+  });
 }
 
 export interface ShippingDiagnostic {
   ok: boolean;
-  provider: ShippingProvider;
+  provider: "melhor-envio";
   title: string;
   detail: string;
   action: string | null;
@@ -65,12 +42,12 @@ export interface ShippingDiagnostic {
 }
 
 /**
- * Cotação de teste ponta a ponta pelo provedor ativo, usada pelo painel admin
- * para o time conferir sozinho se o frete está funcionando.
+ * Cotação de teste ponta a ponta, usada pelo painel admin para o time conferir
+ * sozinho se o frete está funcionando.
  */
 export async function diagnoseShipping(): Promise<ShippingDiagnostic> {
   const checkedAt = new Date().toISOString();
-  const provider = activeShippingProvider();
+  const origem = process.env.ORIGIN_CEP || process.env.CORREIOS_ORIGIN_CEP || "(origem não configurada)";
 
   try {
     // Sonda fixa: 300 g, R$ 80, do CEP de origem para a Av. Paulista.
@@ -83,10 +60,10 @@ export async function diagnoseShipping(): Promise<ShippingDiagnostic> {
     const cheapest = quotes[0];
     return {
       ok: true,
-      provider,
+      provider: "melhor-envio",
       title: "Frete funcionando",
       detail:
-        `Cotação de teste (300 g, ${process.env.CORREIOS_ORIGIN_CEP} → 01310-100) devolveu ${quotes.length} ` +
+        `Cotação de teste (300 g, ${origem} → 01310-100) devolveu ${quotes.length} ` +
         `opç${quotes.length === 1 ? "ão" : "ões"}. Mais barata: ${cheapest.carrier} ${cheapest.service} ` +
         `por R$ ${cheapest.price.toFixed(2)}${cheapest.days > 0 ? ` em ${cheapest.days} dia(s) úteis` : ""}.`,
       action: null,
@@ -100,7 +77,7 @@ export async function diagnoseShipping(): Promise<ShippingDiagnostic> {
 
     return {
       ok: false,
-      provider,
+      provider: "melhor-envio",
       title: isMissingToken
         ? "Melhor Envio não configurado"
         : isAuth

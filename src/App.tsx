@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { Product, Review, CartItem, Coupon } from "./types";
 import { scrollToTop } from "./utils";
 import { findCategoryBySlug } from "./lib/categories";
+import { trackVisit } from "./lib/trackVisit";
 
 // Subcomponentes
 import Header from "./components/Header";
@@ -53,6 +54,12 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Conta a visita uma vez por sessão. Fica aqui, depois do desvio pro /admin
+  // acima, pra que acesso do próprio dono ao painel não entre na métrica.
+  useEffect(() => {
+    trackVisit();
+  }, []);
 
   // --- CARREGAR DADOS DA API NO BOOT ---
   useEffect(() => {

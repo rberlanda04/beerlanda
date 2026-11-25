@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   ShoppingBag, DollarSign, Clock, Users, Package, Mail, RefreshCw, Truck,
-  AlertTriangle, AlertCircle, Info, TrendingUp, TrendingDown, Minus, ImageOff, Receipt, ArrowRight
+  AlertTriangle, AlertCircle, Info, TrendingUp, TrendingDown, Minus, ImageOff, Receipt, ArrowRight,
+  Eye
 } from "lucide-react";
 import { DashboardStats, DashboardAlert, Order } from "../../types";
 import { formatCurrency } from "../../utils";
@@ -54,6 +55,117 @@ function StatCard({
           {!delta && hint && <p className="mt-0.5 text-[10px] text-natural-text/50">{hint}</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** "2026-11-25" -> "25/11". Sem fuso: a string já vem no dia da loja. */
+function diaCurto(iso: string): string {
+  const [, mes, dia] = iso.split("-");
+  return `${dia}/${mes}`;
+}
+
+/**
+ * Acessos à loja nos últimos 30 dias.
+ *
+ * Uma série só, então não há legenda: o título diz o que é. As barras são finas
+ * com 2px de respiro entre elas e ficam ancoradas na base — dia sem acesso vira
+ * um risco, não um buraco, pra não parecer que falta dado.
+ *
+ * O número que decide algo aqui é a conversão. Acesso sozinho não diz nada:
+ * muita visita e nenhuma venda é problema de loja (foto, preço, frete); pouca
+ * visita é problema de divulgação. São ações opostas, por isso andam juntos.
+ */
+function TrafficPanel({ stats }: { stats: DashboardStats }) {
+  const dias = stats.visitsByDay || [];
+  const pico = Math.max(1, ...dias.map((d) => d.sessions));
+  const delta = trend(stats.visits30d, stats.visitsPrev30d);
+  const TrendIcon = delta?.dir === "up" ? TrendingUp : delta?.dir === "down" ? TrendingDown : Minus;
+  const trendTone = delta?.dir === "up" ? "text-emerald-600" : delta?.dir === "down" ? "text-rose-600" : "text-natural-text/50";
+
+  // Conversão sobre a mesma janela dos acessos, senão compara coisas diferentes.
+  const conversao = stats.visits30d > 0 ? (stats.orders30d / stats.visits30d) * 100 : null;
+
+  return (
+    <div className="rounded-2xl border border-natural-border bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-sm font-bold text-natural-darkbrown inline-flex items-center gap-2">
+            <Eye className="h-4 w-4 text-natural-gold" />
+            Acessos à loja
+          </h3>
+          <p className="mt-0.5 text-[11px] text-natural-text/60">
+            Últimos 30 dias · uma visita por pessoa que abre a loja
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-bold leading-none text-natural-darkbrown">
+            {stats.visits30d.toLocaleString("pt-BR")}
+          </p>
+          {delta && (
+            <p className={`mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-semibold ${trendTone}`}>
+              <TrendIcon className="h-3 w-3" />
+              {delta.label}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {dias.length === 0 ? (
+        <p className="mt-4 rounded-xl border border-natural-border bg-natural-card p-3 text-[11px] leading-relaxed text-natural-text/70">
+          A contagem começa a partir de agora. Os acessos de hoje aparecem aqui
+          conforme as pessoas entram na loja — amanhã já dá pra comparar dias.
+        </p>
+      ) : (
+        <>
+          <div className="mt-4 flex h-20 items-end gap-[2px]" role="img" aria-label={`Acessos por dia nos últimos 30 dias. Pico de ${pico} em um dia.`}>
+            {dias.map((d) => {
+              const altura = Math.max(2, Math.round((d.sessions / pico) * 76));
+              const ehPico = d.sessions === pico && pico > 1;
+              return (
+                <div
+                  key={d.date}
+                  title={`${diaCurto(d.date)} · ${d.sessions} acesso${d.sessions === 1 ? "" : "s"}`}
+                  style={{ height: `${altura}px` }}
+                  className={`flex-1 rounded-t-[3px] transition-opacity hover:opacity-100 ${
+                    ehPico ? "bg-natural-gold" : "bg-natural-gold/45"
+                  }`}
+                />
+              );
+            })}
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-[10px] text-natural-text/50">
+            <span>{diaCurto(dias[0].date)}</span>
+            <span className="font-semibold text-natural-text/70">pico: {pico} num dia</span>
+            <span>{diaCurto(dias[dias.length - 1].date)}</span>
+          </div>
+        </>
+      )}
+
+      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-natural-border pt-4">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-natural-text/60">Hoje</p>
+          <p className="text-lg font-bold text-natural-darkbrown">{stats.visitsToday}</p>
+          <p className="text-[10px] text-natural-text/50">acessos até agora</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-natural-text/60">Conversão</p>
+          <p className="text-lg font-bold text-natural-darkbrown">
+            {conversao === null ? "—" : `${conversao.toFixed(1).replace(".", ",")}%`}
+          </p>
+          <p className="text-[10px] text-natural-text/50">
+            {conversao === null
+              ? "sem acessos no período"
+              : `${stats.orders30d} pedido${stats.orders30d === 1 ? "" : "s"} pago${stats.orders30d === 1 ? "" : "s"} em ${stats.visits30d.toLocaleString("pt-BR")} acessos`}
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-3 text-[10px] leading-relaxed text-natural-text/50">
+        Contagem própria da loja, por sessão de navegador. Não inclui seus acessos
+        ao painel nem robôs de busca. Para detalhe por página e origem do tráfego,
+        o Google Analytics segue instalado no site.
+      </p>
     </div>
   );
 }
@@ -181,6 +293,7 @@ export default function AdminDashboard({ token, onNavigate }: AdminDashboardProp
 
   const revenueTrend = trend(stats.revenue30d, stats.revenuePrev30d);
   const ordersTrend = trend(stats.orders30d, stats.ordersPrev30d);
+  const visitsTrend = trend(stats.visits30d, stats.visitsPrev30d);
 
   return (
     <div className="space-y-6">
@@ -223,6 +336,11 @@ export default function AdminDashboard({ token, onNavigate }: AdminDashboardProp
           value={formatCurrency(stats.averageTicket)} hint="média dos pedidos pagos"
         />
         <StatCard
+          icon={Eye} label="Acessos 30 dias" tone="bg-teal-100 text-teal-600"
+          value={stats.visits30d.toLocaleString("pt-BR")} delta={visitsTrend}
+          hint={`${stats.visitsToday} hoje`}
+        />
+        <StatCard
           icon={Truck} label="Esperando envio" tone="bg-rose-100 text-rose-600"
           value={stats.awaitingShipment} hint="pagos e ainda não postados"
         />
@@ -245,6 +363,9 @@ export default function AdminDashboard({ token, onNavigate }: AdminDashboardProp
           hint={stats.missingPhotos > 0 ? "mostram o placeholder na loja" : undefined}
         />
       </div>
+
+      {/* Tráfego: quanta gente entra e quanto disso vira pedido */}
+      <TrafficPanel stats={stats} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         {/* Pedidos recentes, agora com data, hora e etapa da expedição */}

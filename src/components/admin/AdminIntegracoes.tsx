@@ -6,31 +6,9 @@ interface AdminIntegracoesProps {
   token: string;
 }
 
-type Stage = "credenciais" | "autenticacao" | "autorizacao" | "cotacao";
-
-interface CorreiosDiagnostic {
-  ok: boolean;
-  stage: Stage;
-  title: string;
-  detail: string;
-  action: string | null;
-  raw?: string;
-  checkedAt: string;
-}
-
-// A ordem em que os Correios validam a integração — mostrar a cadeia deixa
-// claro que "não calcula o frete" pode parar em degraus bem diferentes, e o
-// que cada um significa na prática.
-const STAGES: { id: Stage; label: string; hint: string }[] = [
-  { id: "credenciais", label: "Credenciais", hint: "As variáveis estão configuradas no servidor" },
-  { id: "autenticacao", label: "Autenticação", hint: "O CNPJ + código de acesso são aceitos" },
-  { id: "autorizacao", label: "Autorização", hint: "O contrato tem a API de preço habilitada" },
-  { id: "cotacao", label: "Cotação", hint: "Uma cotação real de teste volta com valor" }
-];
-
 interface ShippingDiagnostic {
   ok: boolean;
-  provider: "melhor-envio" | "correios";
+  provider: "melhor-envio";
   title: string;
   detail: string;
   action: string | null;
@@ -38,13 +16,7 @@ interface ShippingDiagnostic {
   checkedAt: string;
 }
 
-const PROVIDER_LABEL: Record<ShippingDiagnostic["provider"], string> = {
-  "melhor-envio": "Melhor Envio",
-  correios: "Correios (contrato próprio)"
-};
-
 export default function AdminIntegracoes({ token }: AdminIntegracoesProps) {
-  const [status, setStatus] = useState<CorreiosDiagnostic | null>(null);
   const [frete, setFrete] = useState<ShippingDiagnostic | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,142 +25,74 @@ export default function AdminIntegracoes({ token }: AdminIntegracoesProps) {
   const check = () => {
     setIsChecking(true);
     setError(null);
-    Promise.allSettled([
-      adminFetch<ShippingDiagnostic>("/api/admin/frete/status", token),
-      adminFetch<CorreiosDiagnostic>("/api/admin/correios/status", token)
-    ])
-      .then(([freteResult, correiosResult]) => {
-        if (freteResult.status === "fulfilled") setFrete(freteResult.value);
-        if (correiosResult.status === "fulfilled") setStatus(correiosResult.value);
-        if (freteResult.status === "rejected" && correiosResult.status === "rejected") {
-          setError(String((freteResult.reason as Error)?.message || "Falha ao consultar o status."));
-        }
-      })
+    adminFetch<ShippingDiagnostic>("/api/admin/frete/status", token)
+      .then(setFrete)
+      .catch((e: Error) => setError(e.message || "Falha ao consultar o status."))
       .finally(() => setIsChecking(false));
   };
 
   useEffect(check, [token]);
 
   const copyRaw = () => {
-    if (!status?.raw) return;
-    navigator.clipboard.writeText(status.raw).then(() => {
+    if (!frete?.raw) return;
+    navigator.clipboard.writeText(frete.raw).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});
   };
 
-  // O degrau que falhou é o primeiro que não passou; todos antes dele passaram.
-  const failedIndex = status && !status.ok ? STAGES.findIndex((s) => s.id === status.stage) : -1;
-
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-natural-border bg-white overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-natural-border">
-          <h3 className="font-display text-sm font-bold text-natural-darkbrown inline-flex items-center gap-2">
-            <Truck className="h-4 w-4 text-natural-gold" />
-            Correios — cálculo de frete
-          </h3>
+          <div className="min-w-0">
+            <h3 className="font-display text-sm font-bold text-natural-darkbrown inline-flex items-center gap-2">
+              <Truck className="h-4 w-4 text-natural-gold" />
+              Melhor Envio — cálculo de frete
+            </h3>
+            <p className="mt-0.5 text-[11px] text-natural-text/60">
+              Uma cotação devolve Correios, Jadlog, Azul e outras. É daqui que sai o frete do checkout.
+            </p>
+          </div>
           <button
             onClick={check}
             disabled={isChecking}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-natural-gold px-4 py-2 text-xs font-bold text-white hover:bg-natural-gold/90 disabled:opacity-50"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-natural-gold px-4 py-2 text-xs font-bold text-white hover:bg-natural-gold/90 disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? "animate-spin" : ""}`} />
             {isChecking ? "Testando..." : "Testar agora"}
           </button>
         </div>
 
-        <div className="p-5 space-y-5">
+        <div className="p-5 space-y-4">
           {error && (
             <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2.5">{error}</p>
           )}
 
-          {/* Cotação pelo provedor que está realmente ativo — é o que decide
-              se o checkout consegue cotar frete hoje. */}
-          {frete && (
-            <div className={`rounded-xl border p-4 ${frete.ok ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}>
-              <div className="flex flex-wrap items-center gap-2">
+          {isChecking && !frete ? (
+            <div className="flex justify-center py-8">
+              <RefreshCw className="h-6 w-6 animate-spin text-natural-gold" />
+            </div>
+          ) : frete ? (
+            <>
+              <div className={`rounded-xl border p-4 ${frete.ok ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}>
                 <p className={`text-sm font-bold inline-flex items-center gap-2 ${frete.ok ? "text-green-900" : "text-amber-900"}`}>
                   {frete.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
                   {frete.title}
                 </p>
-                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-natural-text">
-                  via {PROVIDER_LABEL[frete.provider]}
-                </span>
-              </div>
-              <p className={`mt-1.5 text-xs leading-relaxed ${frete.ok ? "text-green-900/80" : "text-amber-900/80"}`}>
-                {frete.detail}
-              </p>
-              {frete.action && (
-                <p className="mt-2.5 text-xs font-semibold text-amber-900">Próximo passo: {frete.action}</p>
-              )}
-              {frete.ok && frete.raw && (
-                <pre className="mt-3 overflow-x-auto rounded-lg bg-white/60 p-2.5 text-[10px] leading-relaxed text-natural-text whitespace-pre-wrap">
-                  {frete.raw}
-                </pre>
-              )}
-            </div>
-          )}
-
-          {isChecking && !status ? (
-            <div className="flex justify-center py-8">
-              <RefreshCw className="h-6 w-6 animate-spin text-natural-gold" />
-            </div>
-          ) : status ? (
-            <>
-              <div
-                className={`rounded-xl border p-4 ${status.ok
-                  ? "bg-green-50 border-green-200"
-                  : "bg-amber-50 border-amber-200"
-                  }`}
-              >
-                <p className={`text-sm font-bold inline-flex items-center gap-2 ${status.ok ? "text-green-900" : "text-amber-900"}`}>
-                  {status.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
-                  {status.title}
+                <p className={`mt-1.5 text-xs leading-relaxed ${frete.ok ? "text-green-900/80" : "text-amber-900/80"}`}>
+                  {frete.detail}
                 </p>
-                <p className={`mt-1.5 text-xs leading-relaxed ${status.ok ? "text-green-900/80" : "text-amber-900/80"}`}>
-                  {status.detail}
-                </p>
-                {status.action && (
-                  <p className="mt-2.5 text-xs font-semibold text-amber-900">
-                    Próximo passo: {status.action}
-                  </p>
+                {frete.action && (
+                  <p className="mt-2.5 text-xs font-semibold text-amber-900">Próximo passo: {frete.action}</p>
                 )}
               </div>
 
-              {/* Cadeia de validação */}
-              <ol className="space-y-2">
-                {STAGES.map((stage, index) => {
-                  const passed = status.ok || (failedIndex >= 0 && index < failedIndex);
-                  const failed = failedIndex === index;
-                  return (
-                    <li key={stage.id} className="flex items-start gap-2.5">
-                      <span
-                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${passed
-                          ? "bg-green-600 text-white"
-                          : failed
-                            ? "bg-amber-500 text-white"
-                            : "bg-natural-border text-natural-text/60"
-                          }`}
-                      >
-                        {passed ? "✓" : failed ? "!" : index + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <p className={`text-xs font-bold ${failed ? "text-amber-900" : "text-natural-darkbrown"}`}>
-                          {stage.label}
-                        </p>
-                        <p className="text-[11px] text-natural-text/70">{stage.hint}</p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-
-              {status.raw && (
+              {frete.raw && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <p className="text-[11px] font-bold text-natural-text/70">
-                      Resposta dos Correios (anexe num chamado com eles)
+                      {frete.ok ? "Opções que a cotação de teste devolveu" : "Resposta do Melhor Envio"}
                     </p>
                     <button
                       onClick={copyRaw}
@@ -199,23 +103,38 @@ export default function AdminIntegracoes({ token }: AdminIntegracoesProps) {
                     </button>
                   </div>
                   <pre className="overflow-x-auto rounded-lg bg-natural-card border border-natural-border p-3 text-[10px] leading-relaxed text-natural-text whitespace-pre-wrap break-all">
-                    {status.raw}
+                    {frete.raw}
                   </pre>
                 </div>
               )}
 
               <p className="text-[10px] text-natural-text/50">
-                Verificado em {new Date(status.checkedAt).toLocaleString("pt-BR")}
+                Verificado em {new Date(frete.checkedAt).toLocaleString("pt-BR")}
               </p>
             </>
           ) : null}
         </div>
       </div>
 
-      <p className="text-[11px] text-natural-text/60 leading-relaxed">
-        Enquanto a cotação não funcionar, o checkout segue vendendo: o cliente escolhe
-        "frete a combinar" e o valor do envio é acertado depois.
-      </p>
+      <div className="rounded-xl border border-natural-border bg-natural-card p-4">
+        <p className="text-[11px] font-bold text-natural-darkbrown">O que costuma quebrar o frete</p>
+        <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed text-natural-text/80">
+          <li>
+            <strong>O token do Melhor Envio vale 30 dias.</strong> Quando ele expira, a cotação
+            volta 401 e o checkout cai no "frete a combinar". É a causa mais provável se o frete
+            parar de funcionar de um dia para o outro.
+          </li>
+          <li>
+            <strong>Produto sem peso cadastrado</strong> cota por um peso padrão da categoria, que
+            pode ser menor que o real — aí a loja paga a diferença no envio. O painel avisa no
+            resumo quando algum produto está assim.
+          </li>
+        </ul>
+        <p className="mt-3 text-[11px] text-natural-text/60 leading-relaxed">
+          Enquanto a cotação não funcionar, o checkout segue vendendo: a cliente escolhe
+          "frete a combinar" e o valor do envio é acertado depois pelo WhatsApp.
+        </p>
+      </div>
     </div>
   );
 }
