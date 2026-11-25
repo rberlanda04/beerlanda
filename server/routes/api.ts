@@ -24,6 +24,7 @@ import { createPaymentPreference, getPaymentDetails } from '../services/mercadoP
 import { createSubscriptionPlan, getSubscriptionDetails } from '../services/mercadoPagoSubscriptionService';
 import { defaultWeightForCategory, diagnoseCorreios } from '../services/correiosService';
 import { getShippingQuotes, activeShippingProvider, diagnoseShipping } from '../services/shippingService';
+import { lookupCep } from '../services/cepService';
 
 const router = express.Router();
 
@@ -190,6 +191,23 @@ router.post("/api/validate-coupon", publicWriteLimiter, async (req, res) => {
 // direto) — a rota não precisa saber qual. Nunca inventa um valor: se a
 // cotação falhar, o frontend recebe um erro claro pra oferecer "tentar
 // novamente" ou seguir com frete a combinar.
+// Auto-preenchimento do endereço no checkout: a cliente digita só o CEP e o
+// número. Cada campo a menos pra digitar no celular é carrinho que não é
+// abandonado — e o endereço vem padronizado, sem erro de digitação que
+// atrapalha a postagem depois.
+router.get("/api/cep/:cep", shippingLimiter, async (req, res) => {
+  try {
+    const found = await lookupCep(req.params.cep);
+    if (!found) return res.status(404).json({ error: "CEP não encontrado." });
+    // Endereço de CEP não muda: deixa o navegador guardar por um dia.
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json(found);
+  } catch (error: any) {
+    console.error("[CEP] Falha na consulta:", error.message);
+    res.status(502).json({ error: "Não foi possível consultar o CEP agora." });
+  }
+});
+
 router.post("/api/shipping/calculate", shippingLimiter, async (req, res) => {
   const { cep, items } = req.body;
 

@@ -36,6 +36,58 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
   const [shippingError, setShippingError] = useState<string | null>(null);
   const lastCalculatedCep = useRef<string>("");
 
+  // Busca de endereço pelo CEP
+  const [isLookingUpCep, setIsLookingUpCep] = useState(false);
+  const [cepNotFound, setCepNotFound] = useState(false);
+  const [addressAutoFilled, setAddressAutoFilled] = useState(false);
+  const lastLookedUpCep = useRef<string>("");
+  const numberInputRef = useRef<HTMLInputElement>(null);
+
+  const lookupAddress = async (cep: string) => {
+    const digits = cep.replace(/\D/g, "");
+    if (digits.length !== 8 || digits === lastLookedUpCep.current) return;
+
+    lastLookedUpCep.current = digits;
+    setIsLookingUpCep(true);
+    setCepNotFound(false);
+
+    try {
+      const response = await fetch(`/api/cep/${digits}`);
+      if (!response.ok) {
+        setCepNotFound(true);
+        setAddressAutoFilled(false);
+        return;
+      }
+      const data = await response.json();
+
+      // Rua e bairro só vêm nos CEPs de logradouro. Em CEP geral de cidade a
+      // consulta devolve esses campos vazios, e aí a cliente completa à mão —
+      // por isso o que vier vazio não apaga o que ela já tiver escrito.
+      setFormData((prev) => ({
+        ...prev,
+        street: data.street || prev.street,
+        neighborhood: data.neighborhood || prev.neighborhood,
+        cityState: data.city && data.state ? `${data.city} - ${data.state}` : prev.cityState,
+      }));
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        if (data.street) delete next.street;
+        if (data.neighborhood) delete next.neighborhood;
+        if (data.city) delete next.cityState;
+        delete next.zipCode;
+        return next;
+      });
+      setAddressAutoFilled(true);
+      // Leva o cursor pro único campo que a consulta não tem como preencher.
+      numberInputRef.current?.focus();
+    } catch {
+      setCepNotFound(true);
+      setAddressAutoFilled(false);
+    } finally {
+      setIsLookingUpCep(false);
+    }
+  };
+
   const calculateShipping = async (cep: string) => {
     const digits = cep.replace(/\D/g, "");
     if (digits.length !== 8 || digits === lastCalculatedCep.current) return;
@@ -75,11 +127,19 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
     }
   };
 
-  // Dispara o cálculo assim que o CEP chega a 8 dígitos
+  // Assim que o CEP chega a 8 dígitos, busca o endereço e cota o frete juntos
   useEffect(() => {
     const digits = formData.zipCode.replace(/\D/g, "");
-    if (digits.length !== 8) return;
-    const timer = setTimeout(() => calculateShipping(formData.zipCode), 400);
+    if (digits.length !== 8) {
+      // CEP incompleto de novo: some o aviso do CEP anterior.
+      setCepNotFound(false);
+      setAddressAutoFilled(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      lookupAddress(formData.zipCode);
+      calculateShipping(formData.zipCode);
+    }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.zipCode]);
@@ -275,20 +335,44 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                 <label htmlFor="zipCode" className="block text-xs font-bold text-natural-darkbrown uppercase tracking-wider mb-1">
                   CEP
                 </label>
-                <input
-                  type="text"
-                  id="zipCode"
-                  placeholder="Ex: 01310-100"
-                  value={formData.zipCode}
-                  onChange={(e) => setFormData({ ...formData, zipCode: maskCep(e.target.value) })}
-                  className={`w-full rounded-xl border px-3 py-2.5 text-xs focus:outline-hidden bg-natural-card/40 text-natural-darkbrown ${
-                    formErrors.zipCode ? "border-rose-400 focus:border-rose-500" : "border-natural-border focus:border-natural-gold"
-                  }`}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    id="zipCode"
+                    inputMode="numeric"
+                    autoComplete="postal-code"
+                    placeholder="Ex: 01310-100"
+                    value={formData.zipCode}
+                    onChange={(e) => setFormData({ ...formData, zipCode: maskCep(e.target.value) })}
+                    className={`w-full rounded-xl border px-3 py-2.5 pr-9 text-xs focus:outline-hidden bg-natural-card/40 text-natural-darkbrown ${
+                      formErrors.zipCode ? "border-rose-400 focus:border-rose-500" : "border-natural-border focus:border-natural-gold"
+                    }`}
+                  />
+                  {isLookingUpCep && (
+                    <RefreshCw className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-natural-gold" />
+                  )}
+                  {!isLookingUpCep && addressAutoFilled && (
+                    <CheckCircle2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-natural-organic" />
+                  )}
+                </div>
                 {formErrors.zipCode && (
                   <p className="mt-1 text-[11px] text-rose-600 font-medium flex items-center gap-1">
                     <AlertCircle className="h-3.5 w-3.5" />
                     {formErrors.zipCode}
+                  </p>
+                )}
+                {!formErrors.zipCode && isLookingUpCep && (
+                  <p className="mt-1 text-[11px] text-natural-text/60">Buscando endereço…</p>
+                )}
+                {!formErrors.zipCode && !isLookingUpCep && cepNotFound && (
+                  <p className="mt-1 text-[11px] text-amber-700 font-medium flex items-center gap-1">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    CEP não encontrado — preencha o endereço abaixo.
+                  </p>
+                )}
+                {!formErrors.zipCode && !isLookingUpCep && !cepNotFound && addressAutoFilled && (
+                  <p className="mt-1 text-[11px] text-natural-organic font-medium">
+                    Endereço preenchido. Falta só o número.
                   </p>
                 )}
               </div>
@@ -300,6 +384,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                 <input
                   type="text"
                   id="neighborhood"
+                  autoComplete="address-level3"
                   placeholder="Ex: Bela Vista"
                   value={formData.neighborhood}
                   onChange={(e) => setFormData({ ...formData, neighborhood: e.target.value })}
@@ -325,6 +410,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                 <input
                   type="text"
                   id="street"
+                  autoComplete="address-line1"
                   placeholder="Ex: Avenida Paulista"
                   value={formData.street}
                   onChange={(e) => setFormData({ ...formData, street: e.target.value })}
@@ -347,6 +433,8 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                 <input
                   type="text"
                   id="number"
+                  ref={numberInputRef}
+                  inputMode="numeric"
                   placeholder="Ex: 1000"
                   value={formData.number}
                   onChange={(e) => setFormData({ ...formData, number: e.target.value })}
@@ -372,6 +460,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                 <input
                   type="text"
                   id="complement"
+                  autoComplete="address-line2"
                   placeholder="Ex: Apto 42, Bloco B"
                   value={formData.complement}
                   onChange={(e) => setFormData({ ...formData, complement: e.target.value })}
