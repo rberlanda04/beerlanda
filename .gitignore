@@ -6,8 +6,13 @@ coverage/
 *.log
 .env*
 !.env.example
-.claude/
+.claude/*
+# Definições de agente são configuração do projeto (sem segredo) — versionar
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/*.md
 .secrets/
 _test_storage.ts
 /data/
 .firebase/
+
