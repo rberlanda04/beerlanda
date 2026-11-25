@@ -10,6 +10,8 @@ import { uploadImageBuffer } from '../services/storageService';
 import {
   setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
   saveOrder, saveCustomer, updateOrderPayment, getOrdersFromFirestore, getCustomersFromFirestore,
+  getOrderById, claimOrderEmail, getPendingOrdersBetween,
+  saveCampaignRecord, getCampaignHistory, setEmailOptOut,
   commitStockForOrder, releaseStockForOrder, updateOrderFulfillment,
   saveMessage, getMessagesFromFirestore, markMessageRead,
   getReviewsFromFirestore, setReviewInFirestore, deleteReviewFromFirestore,
@@ -25,6 +27,11 @@ import { createSubscriptionPlan, getSubscriptionDetails } from '../services/merc
 import { defaultWeightForCategory, diagnoseCorreios } from '../services/correiosService';
 import { getShippingQuotes, activeShippingProvider, diagnoseShipping } from '../services/shippingService';
 import { lookupCep } from '../services/cepService';
+import { sendEmail, sendBulk, isEmailConfigured, verifyEmailConnection } from '../services/emailService';
+import {
+  pedidoRecebido, pagamentoAprovado, pagamentoNaoConcluido, pedidoPostado,
+  retiradaPronta, carrinhoAbandonado, campanha, respostaCliente, primeiroNome
+} from '../services/emailTemplates';
 
 const router = express.Router();
 
@@ -664,7 +671,20 @@ router.put("/api/admin/orders/:id/fulfillment", adminLimiter, requireAdmin, asyn
       fulfillmentStatus,
       ...(trackingCode !== undefined ? { trackingCode: String(trackingCode).trim().toUpperCase() } : {})
     });
-    res.json({ success: true });
+
+    // Avisa a cliente quando o pacote sai (ou quando a retirada fica pronta).
+    // Só uma vez por pedido: corrigir o código de rastreio depois não dispara
+    // outro e-mail.
+    let emailSent = false;
+    if (fulfillmentStatus === "postado") {
+      const order = await getOrderById(req.params.id);
+      if (order?.email && (await claimOrderEmail(req.params.id, "postado"))) {
+        const aviso = order.shippingService === "RETIRADA" ? retiradaPronta(order) : pedidoPostado(order);
+        emailSent = await sendEmail({ to: order.email, ...aviso });
+      }
+    }
+
+    res.json({ success: true, emailSent });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -676,6 +696,165 @@ router.put("/api/admin/orders/:id/fulfillment", adminLimiter, requireAdmin, asyn
 // Deixa o próprio time conferir em que pé está a integração dos Correios sem
 // depender de ninguém rodar script: útil justamente enquanto a liberação do
 // contrato está pendente, pra saber na hora quando ela sair.
+// -------------------------------------------------------------
+// E-MAIL: DIAGNÓSTICO, RESPOSTA MANUAL E CAMPANHA
+// -------------------------------------------------------------
+
+router.get("/api/admin/email/status", adminLimiter, requireAdmin, async (_req, res) => {
+  res.json({
+    configured: isEmailConfigured(),
+    from: process.env.SMTP_USER || process.env.CONTACT_EMAIL || "",
+    ...(await verifyEmailConnection())
+  });
+});
+
+/** Envia um e-mail de teste pra própria loja, pra conferir como chega. */
+router.post("/api/admin/email/test", adminLimiter, requireAdmin, async (req, res) => {
+  const to = String(req.body?.to || process.env.CONTACT_EMAIL || "").trim();
+  const modelo = campanha({
+    titulo: "Teste de envio da loja",
+    corpo:
+      "Se você está lendo isto, o envio de e-mail da Beerlanda está funcionando.\n\n" +
+      "Este é o mesmo visual que as clientes recebem nas campanhas: cabeçalho da marca, " +
+      "corpo do texto e um botão opcional.",
+    botaoTexto: "Ver a loja",
+    botaoUrl: process.env.APP_URL || "https://beerlanda.com.br"
+  });
+  const ok = await sendEmail({ to, ...modelo });
+  res.json({ success: ok, to });
+});
+
+/** Resposta manual a uma mensagem do formulário de contato. */
+router.post("/api/admin/email/reply", adminLimiter, requireAdmin, async (req, res) => {
+  const { to, nome, assunto, mensagem, mensagemOriginal } = req.body || {};
+  if (!to || !assunto || !mensagem) {
+    return res.status(400).json({ error: "Destinatário, assunto e mensagem são obrigatórios." });
+  }
+  const ok = await sendEmail({
+    to: String(to),
+    ...respostaCliente({ nome, assunto: String(assunto), mensagem: String(mensagem), mensagemOriginal })
+  });
+  res.json({ success: ok });
+});
+
+/** Quem recebe a campanha, conforme o público escolhido. */
+async function campaignAudience(audience: string): Promise<{ email: string; name?: string }[]> {
+  if (audience === "assinantes") {
+    const subs = (await getSubscribersFromFirestore()) || [];
+    return subs
+      .filter((s: any) => s.email && s.status === "ativo" && !s.emailOptOut)
+      .map((s: any) => ({ email: s.email, name: s.name }));
+  }
+  if (audience === "compradores") {
+    const orders = (await getOrdersFromFirestore(500)) || [];
+    const pagos = orders.filter((o) => o.paymentStatus === "Pago" && o.email);
+    return pagos.map((o) => ({ email: o.email, name: o.clientName }));
+  }
+  // "clientes": todo mundo que já deixou e-mail num pedido
+  const customers = (await getCustomersFromFirestore()) || [];
+  return customers
+    .filter((c: any) => c.email && !c.emailOptOut)
+    .map((c: any) => ({ email: c.email, name: c.name }));
+}
+
+router.get("/api/admin/campaigns/audience", adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const lista = await campaignAudience(String(req.query.audience || "clientes"));
+    const unicos = new Set(lista.map((r) => r.email.toLowerCase()));
+    res.json({ total: unicos.size, sample: Array.from(unicos).slice(0, 5) });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/** Pré-visualização: devolve o HTML pronto, sem enviar nada. */
+router.post("/api/admin/campaigns/preview", adminLimiter, requireAdmin, async (req, res) => {
+  const { titulo, corpo, botaoTexto, botaoUrl } = req.body || {};
+  if (!titulo || !corpo) return res.status(400).json({ error: "Título e corpo são obrigatórios." });
+  const { html } = campanha({
+    titulo: String(titulo),
+    corpo: String(corpo),
+    botaoTexto,
+    botaoUrl,
+    nomeDestinatario: "Maria",
+    unsubscribeUrl: `${resolveAppBaseUrl(req)}/descadastrar?e=exemplo%40email.com`
+  });
+  res.json({ html });
+});
+
+router.post("/api/admin/campaigns/send", adminLimiter, requireAdmin, async (req, res) => {
+  const { titulo, corpo, botaoTexto, botaoUrl, audience } = req.body || {};
+  if (!titulo || !corpo) return res.status(400).json({ error: "Título e corpo são obrigatórios." });
+  if (!isEmailConfigured()) {
+    return res.status(400).json({ error: "SMTP não configurado — nenhum e-mail sai da loja ainda." });
+  }
+
+  try {
+    const base = resolveAppBaseUrl(req);
+    const lista = await campaignAudience(String(audience || "clientes"));
+    if (lista.length === 0) {
+      return res.status(400).json({ error: "Nenhum destinatário nesse público." });
+    }
+
+    const resultado = await sendBulk(lista, (r) =>
+      campanha({
+        titulo: String(titulo),
+        corpo: String(corpo),
+        botaoTexto,
+        botaoUrl,
+        nomeDestinatario: r.name,
+        unsubscribeUrl: `${base}/descadastrar?e=${encodeURIComponent(r.email)}`
+      })
+    );
+
+    // Histórico: evita disparar a mesma campanha duas vezes sem perceber.
+    await saveCampaignRecord({
+      titulo: String(titulo),
+      audience: String(audience || "clientes"),
+      ...resultado
+    });
+
+    res.json(resultado);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/api/admin/campaigns", adminLimiter, requireAdmin, async (_req, res) => {
+  try {
+    res.json(await getCampaignHistory());
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/** Descadastro em um clique, sem login — exigido em qualquer e-mail de campanha. */
+router.get("/descadastrar", async (req, res) => {
+  const email = String(req.query.e || "").trim().toLowerCase();
+  let ok = false;
+  if (email) {
+    try {
+      await setEmailOptOut(email);
+      ok = true;
+    } catch (error: any) {
+      console.error("[E-mail] Falha ao descadastrar:", error.message);
+    }
+  }
+  res.set("Content-Type", "text/html; charset=utf-8").send(`<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beerlanda</title></head>
+<body style="margin:0;background:#FBF7F0;font-family:Arial,Helvetica,sans-serif;">
+<div style="max-width:460px;margin:80px auto;padding:36px;background:#fff;border:1px solid #E8DCC8;border-radius:12px;text-align:center;">
+  <div style="font-family:Georgia,serif;font-size:24px;color:#4A3728;font-weight:bold;">Beer<span style="color:#C9A227;">landa</span></div>
+  <p style="color:#4A4036;font-size:14px;line-height:1.6;margin-top:22px;">
+    ${ok
+      ? "Pronto. Você não vai mais receber nossos e-mails de novidade e promoção.<br><br>Avisos sobre pedidos que você fizer continuam chegando — são eles que trazem o código de rastreio."
+      : "Não conseguimos identificar esse endereço. Se quiser sair da lista, responda qualquer e-mail nosso que a gente tira na mão."}
+  </p>
+  <a href="${process.env.APP_URL || "https://beerlanda.com.br"}" style="display:inline-block;margin-top:14px;color:#C9A227;font-weight:bold;text-decoration:none;font-size:13px;">Voltar para a loja</a>
+</div></body></html>`);
+});
+
 router.get("/api/admin/correios/status", adminLimiter, requireAdmin, async (req, res) => {
   try {
     res.json(await diagnoseCorreios());
@@ -696,6 +875,39 @@ router.get("/api/admin/frete/status", adminLimiter, requireAdmin, async (req, re
 
 // 4. Checkout - Registra o Pedido e Gera o Link de Pagamento (Mercado Pago)
 const money = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Avisa a cliente quando o pagamento muda de estado.
+ *
+ * `claimOrderEmail` é o que impede repetição: o Mercado Pago reenvia o mesmo
+ * webhook várias vezes por pagamento, e sem a trava a pessoa recebe a mesma
+ * confirmação quatro ou cinco vezes.
+ */
+async function notifyPaymentStatusChange(orderId: string, paymentStatus: string): Promise<void> {
+  const mapa: Record<string, string> = {
+    "Pago": "pago",
+    "Recusado": "recusado",
+    "Cancelado": "cancelado",
+    "Reembolsado": "reembolsado"
+  };
+  const kind = mapa[paymentStatus];
+  if (!kind || !isEmailConfigured()) return;
+
+  try {
+    const order = await getOrderById(orderId);
+    if (!order?.email) return;
+    if (!(await claimOrderEmail(orderId, kind))) return;
+
+    const mensagem =
+      kind === "pago"
+        ? pagamentoAprovado(order)
+        : pagamentoNaoConcluido(order, kind as "recusado" | "cancelado" | "reembolsado");
+
+    await sendEmail({ to: order.email, ...mensagem });
+  } catch (error: any) {
+    console.error(`[E-mail] Falha ao avisar status do pedido ${orderId}:`, error.message);
+  }
+}
 
 router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
   const { clientName, phone, email, address, items, cep, couponCode, shippingQuoteId } = req.body;
@@ -866,12 +1078,72 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
 
   await updateOrderPayment({ orderId, paymentStatus: "Pendente (Mercado Pago)", mpPreferenceId: preference.preferenceId });
 
+  // Guarda o link pra poder reenviá-lo no e-mail de carrinho abandonado,
+  // horas depois, quando a preferência já não está mais na memória.
+  await updateOrderPayment({ orderId, paymentUrl: preference.initPoint } as any);
+
+  // E-mail não bloqueia a resposta: a cliente precisa ser levada pro Mercado
+  // Pago agora, e a confirmação pode sair meio segundo depois.
+  void sendEmail({
+    to: email,
+    ...pedidoRecebido(newOrder, preference.initPoint)
+  });
+
   res.json({
     success: true,
     orderId,
     paymentUrl: preference.initPoint,
     total
   });
+});
+
+// -------------------------------------------------------------
+// CARRINHO ABANDONADO
+// -------------------------------------------------------------
+
+/**
+ * Lembra quem criou o pedido e não pagou.
+ *
+ * Janela de 24 a 72 horas: antes de 24h o Pix ainda pode estar aberto e o
+ * lembrete vira cobrança chata; depois de 72h o interesse esfriou e o e-mail
+ * só gasta a cota diária do Gmail.
+ */
+async function runAbandonedCartSweep(): Promise<{ checked: number; sent: number }> {
+  if (!isEmailConfigured()) return { checked: 0, sent: 0 };
+  const HORA = 60 * 60 * 1000;
+  const candidatos = await getPendingOrdersBetween(24 * HORA, 72 * HORA);
+  let sent = 0;
+  for (const order of candidatos) {
+    if (!order.email) continue;
+    if (!(await claimOrderEmail(order.id, "abandonado"))) continue;
+    const ok = await sendEmail({
+      to: order.email,
+      ...carrinhoAbandonado(order, (order as any).paymentUrl)
+    });
+    if (ok) sent++;
+    // Espaça os envios: o Gmail trata rajada como uso atípico.
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  if (candidatos.length > 0) {
+    console.log(`[Carrinho abandonado] ${candidatos.length} pendente(s) na janela, ${sent} e-mail(s) enviado(s).`);
+  }
+  return { checked: candidatos.length, sent };
+}
+
+// Gatilho externo (Cloud Scheduler). O Cloud Run dorme quando não há tráfego,
+// então um timer interno sozinho não é confiável — este endpoint garante a
+// execução no horário. Protegido por segredo próprio, não pelo login de admin,
+// porque quem chama é uma máquina.
+router.post("/api/tasks/abandoned-cart", async (req, res) => {
+  const secret = process.env.TASKS_SECRET;
+  if (!secret || req.headers["x-tasks-secret"] !== secret) {
+    return res.status(401).json({ error: "Não autorizado." });
+  }
+  try {
+    res.json(await runAbandonedCartSweep());
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Webhook do Mercado Pago: notificação assíncrona de status de pagamento.
@@ -954,6 +1226,11 @@ router.post("/api/webhooks/mercadopago", async (req, res) => {
           : `[Estoque] Pedido ${orderId}: nada a devolver (${movement.reason}).`
       );
     }
+
+    // Avisa a cliente da mudança de status. O Mercado Pago reenvia o mesmo
+    // webhook várias vezes, então só dispara quando o status mudou de fato —
+    // senão a pessoa recebe a mesma confirmação quatro vezes.
+    await notifyPaymentStatusChange(orderId, paymentStatus);
 
     res.status(200).send("ok");
   } catch (error) {

@@ -65,7 +65,7 @@ async function saveOrder(order: Order): Promise<void> {
   await db.collection("orders").doc(order.id).set({ ...order, createdAt: new Date().toISOString() });
 }
 
-async function updateOrderPayment(fields: { orderId: string; paymentStatus: string; mpPreferenceId?: string; mpPaymentId?: string }): Promise<void> {
+async function updateOrderPayment(fields: { orderId: string; paymentStatus?: string; mpPreferenceId?: string; mpPaymentId?: string; paymentUrl?: string }): Promise<void> {
   const { orderId, ...rest } = fields;
   await db.collection("orders").doc(orderId).set(rest, { merge: true });
 }
@@ -73,6 +73,93 @@ async function updateOrderPayment(fields: { orderId: string; paymentStatus: stri
 async function getOrdersFromFirestore(limit = 200): Promise<Order[]> {
   const snap = await db.collection("orders").orderBy("createdAt", "desc").limit(limit).get();
   return snap.docs.map((d) => d.data() as Order);
+}
+
+// -------------------------------------------------------------
+// E-MAIL: HISTÓRICO DE CAMPANHA E DESCADASTRO
+// -------------------------------------------------------------
+
+export interface CampaignRecord {
+  id: string;
+  titulo: string;
+  audience: string;
+  sent: number;
+  failed: number;
+  skipped: number;
+  sentAt: string;
+}
+
+async function saveCampaignRecord(
+  data: Omit<CampaignRecord, "id" | "sentAt"> & { errors?: string[] }
+): Promise<void> {
+  const id = randomUUID();
+  const { errors, ...rest } = data;
+  await db.collection("campaigns").doc(id).set({ id, ...rest, sentAt: new Date().toISOString() });
+}
+
+async function getCampaignHistory(limit = 30): Promise<CampaignRecord[]> {
+  const snap = await db.collection("campaigns").orderBy("sentAt", "desc").limit(limit).get();
+  return snap.docs.map((d) => d.data() as CampaignRecord);
+}
+
+/**
+ * Marca que esta pessoa não quer mais campanha.
+ *
+ * A flag vai em `customers` e em `subscribers`, porque o mesmo e-mail pode
+ * estar nos dois. Avisos de pedido continuam saindo: quem pediu pra sair da
+ * lista de promoção ainda precisa receber o código de rastreio.
+ */
+async function setEmailOptOut(email: string): Promise<void> {
+  const alvo = email.trim().toLowerCase();
+  if (!alvo) return;
+  const carimbo = { emailOptOut: true, emailOptOutAt: new Date().toISOString() };
+
+  for (const colecao of ["customers", "subscribers"]) {
+    const snap = await db.collection(colecao).where("email", "==", alvo).get();
+    await Promise.all(snap.docs.map((d) => d.ref.set(carimbo, { merge: true })));
+  }
+  // Registro próprio, pra respeitar a saída mesmo de quem ainda não é cliente.
+  await db.collection("emailOptOuts").doc(encodeURIComponent(alvo)).set({ email: alvo, ...carimbo });
+}
+
+async function getOrderById(orderId: string): Promise<Order | null> {
+  const doc = await db.collection("orders").doc(orderId).get();
+  return doc.exists ? (doc.data() as Order) : null;
+}
+
+/**
+ * Marca que um e-mail já saiu para este pedido, para não repetir.
+ *
+ * O Mercado Pago reenvia o mesmo webhook várias vezes por pagamento — sem
+ * essa trava a cliente recebe a confirmação quatro ou cinco vezes. Devolve
+ * `true` só na primeira marcação, dentro de uma transação para o caso de dois
+ * webhooks chegarem ao mesmo tempo em instâncias diferentes do Cloud Run.
+ */
+async function claimOrderEmail(orderId: string, kind: string): Promise<boolean> {
+  const ref = db.collection("orders").doc(orderId);
+  return db.runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    if (!doc.exists) return false;
+    const sent = (doc.data()?.emailsSent || {}) as Record<string, string>;
+    if (sent[kind]) return false;
+    tx.set(ref, { emailsSent: { ...sent, [kind]: new Date().toISOString() } }, { merge: true });
+    return true;
+  });
+}
+
+/** Pedidos pendentes criados numa janela de tempo — base do carrinho abandonado. */
+async function getPendingOrdersBetween(olderThanMs: number, newerThanMs: number): Promise<Order[]> {
+  const now = Date.now();
+  const from = new Date(now - newerThanMs).toISOString();
+  const to = new Date(now - olderThanMs).toISOString();
+  const snap = await db
+    .collection("orders")
+    .where("createdAt", ">=", from)
+    .where("createdAt", "<=", to)
+    .get();
+  return snap.docs
+    .map((d) => d.data() as Order)
+    .filter((o) => (o.paymentStatus || "").startsWith("Pendente"));
 }
 
 // -------------------------------------------------------------
@@ -621,7 +708,9 @@ async function saveSubscriptionConfig(config: SubscriptionConfig): Promise<void>
 
 export {
   setProductInFirestore, deleteProductFromFirestore, getProductsFromFirestore,
-  saveOrder, updateOrderPayment, getOrdersFromFirestore,
+  saveOrder, updateOrderPayment, getOrdersFromFirestore, getOrderById,
+  claimOrderEmail, getPendingOrdersBetween,
+  saveCampaignRecord, getCampaignHistory, setEmailOptOut,
   commitStockForOrder, releaseStockForOrder, updateOrderFulfillment,
   saveCustomer, getCustomersFromFirestore,
   saveMessage, getMessagesFromFirestore, markMessageRead,
