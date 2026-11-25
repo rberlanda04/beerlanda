@@ -82,7 +82,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onSelectC
   // Ao clicar numa categoria, a página sobe de volta pro começo da vitrine.
   // Sem isso, quem estava no meio da lista trocava o filtro e continuava no
   // meio da lista nova, sem ver os primeiros produtos da categoria.
-  const catalogRef = useRef<HTMLElement>(null);
+  const catalogRef = useRef<HTMLElement>(null); // aponta pra barra de filtros
   const pickCategory = (cat: string, slug: string | null) => {
     setSelectedCategory(cat);
     onSelectCategory(slug);
@@ -229,7 +229,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onSelectC
       )}
 
       {/* 2. BUSCA E FILTROS RÁPIDOS (Categorias) */}
-      <section id="catalogo" ref={catalogRef} className="scroll-mt-20">
+      <section id="catalogo" className="scroll-mt-20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
           <div>
             <h2 className="font-display text-2xl font-bold text-natural-darkbrown sm:text-3xl">
@@ -257,7 +257,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onSelectC
         {/* Filtro de categorias — são links de verdade (<a href>) pra que o
             Google consiga chegar em /categoria/slug a partir da Home; o clique
             é interceptado pra filtrar na hora, sem recarregar a página. */}
-        <nav className="flex flex-wrap gap-2 mb-8" aria-label="Filtrar por categoria">
+        <nav ref={catalogRef} className="scroll-mt-24 flex flex-wrap gap-2 mb-8" aria-label="Filtrar por categoria">
           {categories.map((cat) => {
             const CatIcon = cat !== "Todos" ? getCategoryIcon(cat) : null;
             const slug = cat === "Todos" ? null : categoryToSlug(cat);

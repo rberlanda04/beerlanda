@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { Product, Review, CartItem, Coupon } from "./types";
 import { scrollToTop } from "./utils";
 import { findCategoryBySlug } from "./lib/categories";
@@ -30,6 +30,11 @@ export default function App() {
   }
 
   // --- ESTADO GLOBAL ---
+  // Qual tela estava aberta antes da última mudança de hash, pra decidir se a
+  // página deve subir. Em ref, não em estado: só é lido dentro do roteador e
+  // não deve provocar re-render.
+  const lastViewRef = useRef<string>("");
+
   const [appConfig, setAppConfig] = useState<{
     contactEmail: string;
     whatsappNumber?: string;
@@ -136,6 +141,10 @@ export default function App() {
         else if (/^\/clube\/?$/.test(path)) hash = "#clube";
       }
 
+      // Qual tela o hash pede. Serve pra decidir no fim se a página deve
+      // subir: só faz sentido rolar pro topo quando a tela muda de verdade.
+      let nextView = "home";
+
       if (hash.startsWith("#categoria/")) {
         const category = findCategoryBySlug(hash.replace("#categoria/", ""));
         setActiveCategory(category ? category.name : null);
@@ -148,6 +157,7 @@ export default function App() {
         if (found) {
           setSelectedProduct(found);
           setCurrentView("product");
+          nextView = "product";
         } else if (products.length > 0) {
           // Se não encontrou mas produtos já carregaram, volta pro início
           window.location.hash = "";
@@ -158,32 +168,43 @@ export default function App() {
         } else {
           setCurrentView("checkout");
           setSelectedProduct(null);
+          nextView = "checkout";
         }
       } else if (hash === "#pagamento/sucesso") {
         setCurrentView("payment-success");
+        nextView = "payment-success";
         setSelectedProduct(null);
         setCartItems([]);
         setAppliedCoupon(null);
       } else if (hash === "#pagamento/erro") {
         setCurrentView("payment-failure");
+        nextView = "payment-failure";
         setSelectedProduct(null);
       } else if (hash === "#pagamento/pendente") {
         setCurrentView("payment-pending");
+        nextView = "payment-pending";
         setSelectedProduct(null);
         setCartItems([]);
         setAppliedCoupon(null);
       } else if (hash === "#clube") {
         setCurrentView("clube");
+        nextView = "clube";
         setSelectedProduct(null);
       } else if (hash === "#abelhas") {
         setCurrentView("clube-welcome");
+        nextView = "clube-welcome";
         setSelectedProduct(null);
       } else {
         // Padrão: Home
         setCurrentView("home");
         setSelectedProduct(null);
       }
-      scrollToTop();
+      // Rolar pro topo só quando a tela troca de verdade. Clicar numa
+      // categoria mantém a pessoa na Home — aí quem decide pra onde rolar é a
+      // vitrine, que leva até os primeiros produtos. Sem essa condição o
+      // roteador jogava a página lá em cima e desfazia isso.
+      if (nextView !== lastViewRef.current) scrollToTop();
+      lastViewRef.current = nextView;
     }
 
     // Registrar o escutador de hash
