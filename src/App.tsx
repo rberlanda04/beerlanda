@@ -30,7 +30,11 @@ export default function App() {
   }
 
   // --- ESTADO GLOBAL ---
-  const [appConfig, setAppConfig] = useState<{ contactEmail: string }>({
+  const [appConfig, setAppConfig] = useState<{
+    contactEmail: string;
+    whatsappNumber?: string;
+    pickupCity?: string;
+  }>({
     contactEmail: "beerlandaprodutosartesanais@gmail.com"
   });
 
@@ -313,6 +317,7 @@ export default function App() {
               <CheckoutView
                 cartItems={cartItems}
                 appliedCoupon={appliedCoupon}
+                appConfig={appConfig}
                 onBackToCart={() => setIsCartOpen(true)}
               />
             </motion.div>

@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CartItem, Coupon, ShippingQuote } from "../types";
 import { formatCurrency, maskPhone, maskCep } from "../utils";
-import { ArrowLeft, AlertCircle, ShoppingBag, Truck, CreditCard, ShieldCheck, RefreshCw, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, AlertCircle, ShoppingBag, Truck, CreditCard, ShieldCheck, RefreshCw, CheckCircle2, ChevronDown, ChevronUp, Store, MessageCircle } from "lucide-react";
 
 interface CheckoutViewProps {
   cartItems: CartItem[];
   appliedCoupon: Coupon | null;
   onBackToCart: () => void;
+  /** Vem de /api/config: número de WhatsApp (só dígitos, com DDI) e cidade da retirada. */
+  appConfig?: { whatsappNumber?: string; pickupCity?: string };
 }
 
-export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }: CheckoutViewProps) {
+export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart, appConfig }: CheckoutViewProps) {
+  const whatsappNumber = appConfig?.whatsappNumber || "";
+  const pickupCity = appConfig?.pickupCity || "Curitiba e região";
   // Estado do formulário
   const [formData, setFormData] = useState({
     name: "",
@@ -161,6 +165,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
     }
   }
 
+  const isPickup = selectedShipping === "retirada";
   const chosenQuote = shippingOptions?.find((q) => q.id === selectedShipping) || null;
 
   // O agregador devolve até uma dúzia de transportadoras. Mostrar todas empurra
@@ -195,12 +200,15 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       errors.email = "Endereço de e-mail inválido";
     }
-    if (!formData.street.trim()) errors.street = "Nome da rua é obrigatório";
-    if (!formData.number.trim()) errors.number = "Número residencial é obrigatório";
-    if (!formData.zipCode.trim()) errors.zipCode = "CEP é obrigatório";
-    if (!formData.neighborhood.trim()) errors.neighborhood = "Bairro é obrigatório";
-    if (!formData.cityState.trim()) errors.cityState = "Cidade e Estado são obrigatórios";
-    if (!selectedShipping) errors.shipping = "Escolha uma opção de frete para continuar";
+    // Quem vai retirar no ateliê não precisa informar endereço de entrega.
+    if (!isPickup) {
+      if (!formData.street.trim()) errors.street = "Nome da rua é obrigatório";
+      if (!formData.number.trim()) errors.number = "Número residencial é obrigatório";
+      if (!formData.zipCode.trim()) errors.zipCode = "CEP é obrigatório";
+      if (!formData.neighborhood.trim()) errors.neighborhood = "Bairro é obrigatório";
+      if (!formData.cityState.trim()) errors.cityState = "Cidade e Estado são obrigatórios";
+    }
+    if (!selectedShipping) errors.shipping = "Escolha como quer receber para continuar";
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -214,7 +222,9 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
     setIsSubmitting(true);
     setPaymentError(null);
 
-    const fullAddress = `${formData.street}, Nº ${formData.number}${formData.complement ? ` - ${formData.complement}` : ""}, Bairro: ${formData.neighborhood}, CEP: ${formData.zipCode}, Cidade/Estado: ${formData.cityState}`;
+    const fullAddress = isPickup
+      ? `RETIRADA no ateliê (${pickupCity}) — combinar dia e horário pelo WhatsApp ${formData.phone}`
+      : `${formData.street}, Nº ${formData.number}${formData.complement ? ` - ${formData.complement}` : ""}, Bairro: ${formData.neighborhood}, CEP: ${formData.zipCode}, Cidade/Estado: ${formData.cityState}`;
 
     // Só identificadores e quantidades: preço, desconto e frete são
     // recalculados no servidor a partir do catálogo e da transportadora.
@@ -227,7 +237,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
       cep: formData.zipCode.replace(/\D/g, ""),
       items: cartItems.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
       couponCode: appliedCoupon?.code ?? null,
-      shippingQuoteId: chosenQuote ? chosenQuote.id : "combinar",
+      shippingQuoteId: isPickup ? "retirada" : chosenQuote ? chosenQuote.id : "combinar",
     };
 
     try {
@@ -555,10 +565,53 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
               <div>
                 <div className="flex items-center gap-1.5 text-xs font-bold text-natural-darkbrown mb-2">
                   <Truck className="h-3.5 w-3.5 text-natural-gold" />
-                  Frete
+                  Como você quer receber
                 </div>
 
-                {selectedShipping === "combinar" ? (
+                {/* Retirada aparece antes do frete e independe do CEP: quem é
+                    daqui não precisa calcular nada nem preencher endereço. */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedShipping(isPickup ? null : "retirada")}
+                  className={`mb-2 w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs cursor-pointer transition-colors ${
+                    isPickup ? "border-natural-organic bg-natural-organic/10" : "border-natural-border bg-white hover:bg-natural-card"
+                  }`}
+                >
+                  <span className="flex min-w-0 items-center gap-1.5 text-left">
+                    {isPickup ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-natural-organic" />
+                    ) : (
+                      <Store className="h-3.5 w-3.5 shrink-0 text-natural-text/50" />
+                    )}
+                    <span className="min-w-0">
+                      <span className="font-bold text-natural-darkbrown">Retirar em mãos</span>
+                      <span className="block text-[10px] text-natural-text/60">
+                        {pickupCity} · combinamos dia e hora pelo WhatsApp
+                      </span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 font-mono font-bold text-natural-organic">Grátis</span>
+                </button>
+
+                {isPickup ? (
+                  <div className="rounded-lg bg-natural-organic/5 border border-natural-organic/30 p-2.5">
+                    <p className="text-[11px] text-natural-darkbrown font-medium">
+                      Sem frete e sem endereço: é só finalizar o pagamento que combinamos a retirada
+                      pelo WhatsApp do telefone informado.
+                    </p>
+                    {whatsappNumber && (
+                      <a
+                        href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent("Oi! Quero combinar a retirada de um pedido da Beerlanda.")}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-natural-organic underline"
+                      >
+                        <MessageCircle className="h-3 w-3" />
+                        Falar no WhatsApp agora
+                      </a>
+                    )}
+                  </div>
+                ) : selectedShipping === "combinar" ? (
                   <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5">
                     <p className="flex items-center gap-1.5 text-[11px] text-amber-800 font-medium">
                       <CheckCircle2 className="h-3.5 w-3.5" />

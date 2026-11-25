@@ -83,7 +83,11 @@ const adminLimiter = rateLimit({
 router.get("/api/config", (req, res) => {
   res.json({
     contactEmail: process.env.CONTACT_EMAIL || "beerlandaprodutosartesanais@gmail.com",
-    mercadoPagoPublicKey: process.env.MERCADOPAGO_PUBLIC_KEY || ""
+    mercadoPagoPublicKey: process.env.MERCADOPAGO_PUBLIC_KEY || "",
+    // Só dígitos com DDI, ex: 5541998765432. Vazio esconde o botão de
+    // WhatsApp na retirada, que continua funcionando pelo telefone do pedido.
+    whatsappNumber: (process.env.WHATSAPP_NUMBER || "").replace(/\D/g, ""),
+    pickupCity: process.env.PICKUP_CITY || "Curitiba e região"
   });
 });
 
@@ -749,7 +753,11 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
   // o preço é a transportadora, não o navegador.
   let shippingCost = 0;
   let shippingService = "A_COMBINAR";
-  if (shippingQuoteId && shippingQuoteId !== "combinar" && cep) {
+  if (shippingQuoteId === "retirada") {
+    // Retirada no ateliê: sem frete, combinada pelo WhatsApp depois do
+    // pagamento. A expedição precisa distinguir isso de "não consegui cotar".
+    shippingService = "RETIRADA";
+  } else if (shippingQuoteId && shippingQuoteId !== "combinar" && cep) {
     try {
       const quotes = await getShippingQuotes({
         destinationCep: String(cep).replace(/\D/g, ""),

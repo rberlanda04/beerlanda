@@ -1,8 +1,8 @@
-import { useState, useEffect, type MouseEvent } from "react";
+import { useState, useRef, useEffect, type MouseEvent } from "react";
 import { Product, Review } from "../types";
 import { formatCurrency, getCategoryIcon, PRODUCT_CATEGORIES } from "../utils";
 import { categoryToSlug } from "../lib/categories";
-import { Star, ShieldAlert, Sparkles, ArrowRight, CheckCircle, Flame, StarHalf, Search, Heart, ShieldCheck, FlaskConical, Hand, Recycle, Award } from "lucide-react";
+import { Star, ShieldAlert, Sparkles, ArrowRight, CheckCircle, Flame, StarHalf, Search, Heart, ShieldCheck, FlaskConical, Hand, Recycle, Award , ChevronDown } from "lucide-react";
 import { motion } from "motion/react";
 
 function BeeIcon({ className }: { className?: string }) {
@@ -65,6 +65,29 @@ export default function HomeView({ products, reviews, onSelectProduct, onSelectC
   const filteredProducts = products
     .filter((p) => selectedCategory === "Todos" || p.category.toLowerCase() === selectedCategory.toLowerCase())
     .filter((p) => p.name.toLowerCase().includes(searchQuery.trim().toLowerCase()));
+
+  // "Todos" são 49 produtos — dezessete linhas de rolagem até o fim da página.
+  // A vitrine abre com 12 (quatro linhas no desktop) e o resto vem sob demanda.
+  const PAGE_SIZE = 12;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const visibleProducts = filteredProducts.slice(0, visibleCount);
+  const remainingCount = filteredProducts.length - visibleProducts.length;
+
+  // Trocar de filtro recomeça a contagem: senão quem já tinha expandido
+  // "Todos" caía numa categoria inteira aberta de uma vez.
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [selectedCategory, searchQuery]);
+
+  // Ao clicar numa categoria, a página sobe de volta pro começo da vitrine.
+  // Sem isso, quem estava no meio da lista trocava o filtro e continuava no
+  // meio da lista nova, sem ver os primeiros produtos da categoria.
+  const catalogRef = useRef<HTMLElement>(null);
+  const pickCategory = (cat: string, slug: string | null) => {
+    setSelectedCategory(cat);
+    onSelectCategory(slug);
+    catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const jornada = [
     { Icon: ShieldCheck, title: "Respeito às abelhas", text: "Cera, mel e própolis, coletados ou adquiridos de pequenos produtores, sempre com sobra garantida para as abelhas." },
@@ -206,7 +229,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onSelectC
       )}
 
       {/* 2. BUSCA E FILTROS RÁPIDOS (Categorias) */}
-      <section id="catalogo" className="scroll-mt-20">
+      <section id="catalogo" ref={catalogRef} className="scroll-mt-20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
           <div>
             <h2 className="font-display text-2xl font-bold text-natural-darkbrown sm:text-3xl">
@@ -244,8 +267,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onSelectC
                 href={slug ? `/categoria/${slug}` : "/"}
                 onClick={(e) => {
                   e.preventDefault();
-                  setSelectedCategory(cat);
-                  onSelectCategory(slug);
+                  pickCategory(cat, slug);
                 }}
                 className={`inline-flex items-center gap-1.5 rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${selectedCategory === cat
                   ? "bg-natural-gold text-white shadow-sm"
@@ -286,7 +308,7 @@ export default function HomeView({ products, reviews, onSelectProduct, onSelectC
             animate="show"
             className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
           >
-            {filteredProducts.map((product) => {
+            {visibleProducts.map((product) => {
               const isOutOfStock = product.stock === 0;
               const isLowStock = product.stock > 0 && product.stock < 5;
               const hasDiscount = !!product.promoPrice;
@@ -401,6 +423,22 @@ export default function HomeView({ products, reviews, onSelectProduct, onSelectC
               );
             })}
           </motion.div>
+        )}
+
+        {remainingCount > 0 && (
+          <div className="mt-8 flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+              className="inline-flex items-center gap-2 rounded-full border border-natural-border bg-white px-6 py-2.5 text-xs font-bold text-natural-darkbrown hover:bg-natural-card hover:border-natural-gold transition-colors cursor-pointer"
+            >
+              <ChevronDown className="h-4 w-4 text-natural-gold" />
+              Ver mais {Math.min(remainingCount, PAGE_SIZE)} produto{Math.min(remainingCount, PAGE_SIZE) === 1 ? "" : "s"}
+            </button>
+            <p className="text-[11px] text-natural-text/50">
+              Mostrando {visibleProducts.length} de {filteredProducts.length}
+            </p>
+          </div>
         )}
       </section>
 
