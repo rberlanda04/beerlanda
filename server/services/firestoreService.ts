@@ -1,6 +1,6 @@
 import { initializeApp, getApps, applicationDefault, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats, AnalyticsData, Subscriber, SubscriptionTier, MonthlyCollection, SubscriptionConfig, Review } from "../../src/types";
+import { Product, Order, Coupon, Customer, ContactMessage, DashboardStats, DashboardAlert, AnalyticsData, Subscriber, SubscriptionTier, MonthlyCollection, SubscriptionConfig, Review } from "../../src/types";
 import { randomUUID } from "crypto";
 import { getServiceAccountCredentials } from "./gcpCredentials";
 
@@ -273,18 +273,114 @@ async function getDashboardStats(): Promise<DashboardStats> {
   ]);
 
   const orders = ordersSnap.docs.map((d) => d.data() as Order);
+  const products = productsSnap.docs.map((d) => d.data() as Product);
   const approved = orders.filter((o) => o.paymentStatus === "Pago");
   const pending = orders.filter((o) => o.paymentStatus?.startsWith("Pendente"));
 
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const since = (days: number) => now - days * DAY;
+  const placedAt = (o: Order) => (o.createdAt ? new Date(o.createdAt).getTime() : NaN);
+  const inWindow = (o: Order, from: number, to: number) => {
+    const t = placedAt(o);
+    return !Number.isNaN(t) && t >= from && t < to;
+  };
+
+  const paid30 = approved.filter((o) => inWindow(o, since(30), now));
+  const paidPrev30 = approved.filter((o) => inWindow(o, since(60), since(30)));
+  const sum = (list: Order[]) => list.reduce((acc, o) => acc + (o.total || 0), 0);
+
+  // "Postado" e "entregue" já saíram; o resto dos pagos é fila de expedição.
+  const awaitingShipment = approved.filter(
+    (o) => !["postado", "entregue", "cancelado"].includes(o.fulfillmentStatus || "aguardando")
+  ).length;
+
+  // Pix e boleto expiram. Pendente com mais de 48h quase nunca vira venda, e
+  // ficar no contador de "pendentes" faz parecer que há dinheiro a receber.
+  const stalePending = pending.filter((o) => {
+    const t = placedAt(o);
+    return !Number.isNaN(t) && t < since(2);
+  }).length;
+
+  const active = products.filter((p) => p.active !== false);
+  const outOfStock = active.filter((p) => (p.stock ?? 0) === 0).length;
+  const lowStock = active
+    .filter((p) => (p.stock ?? 0) > 0 && (p.stock ?? 0) <= 2)
+    .sort((a, b) => (a.stock ?? 0) - (b.stock ?? 0))
+    .map((p) => ({ id: p.id, name: p.name, stock: p.stock ?? 0 }));
+  const missingPhotos = active.filter((p) => !p.imageUrl || p.imageUrl.includes("bee-placeholder")).length;
+
+  // Alertas em ordem de urgência: primeiro o que custa venda ou atrasa cliente.
+  const alerts: DashboardAlert[] = [];
+  if (awaitingShipment > 0) {
+    alerts.push({
+      level: "urgente",
+      title: `${awaitingShipment} pedido${awaitingShipment === 1 ? "" : "s"} pago${awaitingShipment === 1 ? "" : "s"} esperando envio`,
+      detail: "Cliente já pagou e ainda não recebeu código de rastreio.",
+      goTo: "orders"
+    });
+  }
+  if (unreadSnap.size > 0) {
+    alerts.push({
+      level: "urgente",
+      title: `${unreadSnap.size} mensagem${unreadSnap.size === 1 ? "" : "ns"} sem resposta`,
+      detail: "Contato pelo formulário do site aguardando retorno.",
+      goTo: "messages"
+    });
+  }
+  if (outOfStock > 0) {
+    alerts.push({
+      level: "atencao",
+      title: `${outOfStock} produto${outOfStock === 1 ? "" : "s"} esgotado${outOfStock === 1 ? "" : "s"}`,
+      detail: "Aparecem na loja marcados como esgotados e não vendem.",
+      goTo: "products"
+    });
+  }
+  if (missingPhotos > 0) {
+    alerts.push({
+      level: "atencao",
+      title: `${missingPhotos} produto${missingPhotos === 1 ? "" : "s"} sem foto`,
+      detail: "Mostram o desenho de abelha no lugar da imagem — é o que mais derruba conversão.",
+      goTo: "products"
+    });
+  }
+  if (lowStock.length > 0) {
+    alerts.push({
+      level: "info",
+      title: `${lowStock.length} produto${lowStock.length === 1 ? "" : "s"} com estoque baixo`,
+      detail: lowStock.slice(0, 3).map((p) => `${p.name} (${p.stock})`).join(" · "),
+      goTo: "products"
+    });
+  }
+  if (stalePending > 0) {
+    alerts.push({
+      level: "info",
+      title: `${stalePending} pagamento${stalePending === 1 ? "" : "s"} parado${stalePending === 1 ? "" : "s"} há mais de 48h`,
+      detail: "Pix ou boleto que provavelmente expirou — vale cancelar pra limpar a lista.",
+      goTo: "orders"
+    });
+  }
+
   return {
     totalOrders: orders.length,
-    totalRevenue: approved.reduce((sum, o) => sum + (o.total || 0), 0),
+    totalRevenue: sum(approved),
     approvedCount: approved.length,
     pendingCount: pending.length,
     totalCustomers: customersSnap.size,
     totalProducts: productsSnap.size,
     unreadMessages: unreadSnap.size,
-    recentOrders: orders.slice(0, 5)
+    recentOrders: orders.slice(0, 8),
+    revenue30d: sum(paid30),
+    revenuePrev30d: sum(paidPrev30),
+    orders30d: paid30.length,
+    ordersPrev30d: paidPrev30.length,
+    averageTicket: approved.length > 0 ? sum(approved) / approved.length : 0,
+    awaitingShipment,
+    stalePending,
+    outOfStock,
+    lowStock: lowStock.slice(0, 8),
+    missingPhotos,
+    alerts
   };
 }
 
@@ -361,7 +457,101 @@ async function getAnalyticsData(): Promise<AnalyticsData> {
   }
   const newCustomersByDay = days.map((date) => ({ date, count: newCustomersByDayMap.get(date) || 0 }));
 
-  return { revenueByDay, ordersByStatus, topProducts, newCustomersByDay };
+  const paidOrders = orders.filter((o) => o.paymentStatus === "Pago");
+
+  // Faturamento por categoria. O pedido guarda o id do produto, então a
+  // categoria vem do catálogo atual — produto renomeado ou recategorizado
+  // aparece onde está hoje, que é o que interessa pra decidir o que produzir.
+  const productsSnap = await db.collection("products").get();
+  const categoryById = new Map(
+    productsSnap.docs.map((d) => {
+      const p = d.data() as Product;
+      return [p.id, p.category || "Outros"];
+    })
+  );
+  const categoryTotals = new Map<string, { revenue: number; quantity: number }>();
+  for (const order of paidOrders) {
+    for (const item of order.orderItems || []) {
+      const category = categoryById.get(item.productId) || "Outros";
+      const current = categoryTotals.get(category) || { revenue: 0, quantity: 0 };
+      current.revenue += item.quantity * item.unitPrice;
+      current.quantity += item.quantity;
+      categoryTotals.set(category, current);
+    }
+  }
+  const revenueByCategory = Array.from(categoryTotals.entries())
+    .map(([category, v]) => ({ category, ...v }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  // Melhores clientes, agrupados por e-mail (o nome a pessoa digita diferente
+  // a cada compra; o e-mail é o que identifica de verdade).
+  const customerTotals = new Map<string, { name: string; email: string; orders: number; total: number }>();
+  for (const order of paidOrders) {
+    const email = (order.email || "").toLowerCase();
+    if (!email) continue;
+    const current = customerTotals.get(email) || { name: order.clientName, email, orders: 0, total: 0 };
+    current.orders += 1;
+    current.total += order.total || 0;
+    customerTotals.set(email, current);
+  }
+  const topCustomers = Array.from(customerTotals.values())
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 8);
+
+  // Quantos chegaram ao fim. Pedido criado e não pago é carrinho que foi até
+  // o Mercado Pago e desistiu — é o número que mede o atrito do checkout.
+  const created = orders.length;
+  const paid = paidOrders.length;
+  const paymentFunnel = {
+    created,
+    paid,
+    lost: created - paid,
+    conversionRate: created > 0 ? (paid / created) * 100 : 0
+  };
+
+  // Transportadora escolhida, normalizada: "A_COMBINAR" e "RETIRADA" viram
+  // rótulos legíveis em vez de aparecerem como constante do código.
+  const shippingCounts = new Map<string, number>();
+  for (const order of paidOrders) {
+    const raw = order.shippingService || "A_COMBINAR";
+    const label = raw === "RETIRADA" ? "Retirada em mãos" : raw === "A_COMBINAR" ? "A combinar" : raw;
+    shippingCounts.set(label, (shippingCounts.get(label) || 0) + 1);
+  }
+  const shippingSplit = Array.from(shippingCounts.entries())
+    .map(([service, count]) => ({ service, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Ticket médio por dia: só os dias que tiveram venda entram com valor.
+  const ticketByDay = days.map((date) => {
+    const doDia = paidOrders.filter((o) => toDayKey(o.createdAt) === date);
+    const totalDoDia = doDia.reduce((acc, o) => acc + (o.total || 0), 0);
+    return { date, ticket: doDia.length > 0 ? totalDoDia / doDia.length : 0 };
+  });
+
+  // Dia da semana em que a venda acontece — serve pra escolher quando postar.
+  const WEEKDAYS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+  const weekdayTotals = WEEKDAYS.map((weekday) => ({ weekday, orders: 0, revenue: 0 }));
+  for (const order of paidOrders) {
+    if (!order.createdAt) continue;
+    const d = new Date(order.createdAt);
+    if (Number.isNaN(d.getTime())) continue;
+    const slot = weekdayTotals[d.getDay()];
+    slot.orders += 1;
+    slot.revenue += order.total || 0;
+  }
+
+  return {
+    revenueByDay,
+    ordersByStatus,
+    topProducts,
+    newCustomersByDay,
+    revenueByCategory,
+    topCustomers,
+    paymentFunnel,
+    shippingSplit,
+    ticketByDay,
+    salesByWeekday: weekdayTotals
+  };
 }
 
 // -------------------------------------------------------------

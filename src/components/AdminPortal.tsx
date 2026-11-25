@@ -164,7 +164,7 @@ export default function AdminPortal() {
 
             <h2 className="font-display text-xl font-bold mb-5">{NAV.find((n) => n.id === section)?.label}</h2>
 
-            {section === "dashboard" && <AdminDashboard token={token} />}
+            {section === "dashboard" && <AdminDashboard token={token} onNavigate={(tab) => setSection(tab as Section)} />}
             {section === "analytics" && <AdminAnalytics token={token} />}
             {section === "clube" && <AdminClube token={token} />}
             {section === "products" && <AdminProducts token={token} />}

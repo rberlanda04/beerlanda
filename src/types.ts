@@ -93,6 +93,35 @@ export interface DashboardStats {
   totalProducts: number;
   unreadMessages: number;
   recentOrders: Order[];
+
+  /** Faturamento pago dos últimos 30 dias e dos 30 anteriores, pra mostrar tendência. */
+  revenue30d: number;
+  revenuePrev30d: number;
+  /** Pedidos pagos nos últimos 30 dias e nos 30 anteriores. */
+  orders30d: number;
+  ordersPrev30d: number;
+  /** Valor médio dos pedidos pagos. */
+  averageTicket: number;
+  /** Pagos que ainda não foram postados — a fila de trabalho do dia. */
+  awaitingShipment: number;
+  /** Pagamentos pendentes criados há mais de 48h: provavelmente não vão entrar. */
+  stalePending: number;
+  /** Produtos sem estoque e produtos com 1 ou 2 unidades. */
+  outOfStock: number;
+  lowStock: { id: string; name: string; stock: number }[];
+  /** Produtos que ainda mostram o placeholder no lugar da foto. */
+  missingPhotos: number;
+  /** Itens que exigem ação, já ordenados por urgência. */
+  alerts: DashboardAlert[];
+}
+
+export interface DashboardAlert {
+  /** Define o ícone e a cor no painel. */
+  level: "urgente" | "atencao" | "info";
+  title: string;
+  detail: string;
+  /** Id da aba do portal que resolve o alerta, pra virar um clique. */
+  goTo?: "orders" | "products" | "messages" | "reviews" | "integracoes";
 }
 
 export interface AnalyticsData {
@@ -100,6 +129,19 @@ export interface AnalyticsData {
   ordersByStatus: { status: string; count: number }[];
   topProducts: { name: string; quantity: number; revenue: number }[];
   newCustomersByDay: { date: string; count: number }[];
+
+  /** Quanto cada categoria faturou — mostra onde está o dinheiro, não só o volume. */
+  revenueByCategory: { category: string; revenue: number; quantity: number }[];
+  /** Clientes que mais gastaram, pra saber quem merece atenção. */
+  topCustomers: { name: string; email: string; orders: number; total: number }[];
+  /** Quantos pedidos foram criados e quantos chegaram a ser pagos. */
+  paymentFunnel: { created: number; paid: number; lost: number; conversionRate: number };
+  /** Transportadora escolhida nos pedidos, incluindo retirada. */
+  shippingSplit: { service: string; count: number }[];
+  /** Ticket médio por dia, pra ver se o valor do pedido sobe ou cai. */
+  ticketByDay: { date: string; ticket: number }[];
+  /** Em que dia da semana as vendas acontecem — pauta o calendário de posts. */
+  salesByWeekday: { weekday: string; orders: number; revenue: number }[];
 }
 
 /**
