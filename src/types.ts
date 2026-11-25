@@ -37,6 +37,12 @@ export interface Order {
   address: string;
   items: string; // Formatted list of items
   orderItems?: OrderItem[]; // Structured line items (only present on orders created after this field was added)
+  /** Soma dos itens antes de desconto e frete. Ausente em pedidos antigos. */
+  subtotal?: number;
+  /** Desconto do cupom em reais, já calculado no servidor. */
+  discount?: number;
+  /** Cupom efetivamente aceito no fechamento (não o que o cliente digitou). */
+  couponCode?: string;
   total: number;
   shippingCost?: number;
   /**

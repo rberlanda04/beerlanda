@@ -199,17 +199,18 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
 
     const fullAddress = `${formData.street}, Nº ${formData.number}${formData.complement ? ` - ${formData.complement}` : ""}, Bairro: ${formData.neighborhood}, CEP: ${formData.zipCode}, Cidade/Estado: ${formData.cityState}`;
 
+    // Só identificadores e quantidades: preço, desconto e frete são
+    // recalculados no servidor a partir do catálogo e da transportadora.
+    // Mandar os valores daqui deixava o total aberto a edição no navegador.
     const payload = {
       clientName: formData.name,
       phone: formData.phone,
       email: formData.email,
       address: fullAddress,
-      items: cartItems,
-      total,
-      shippingCost,
-      // Guarda transportadora e serviço escolhidos, pra expedição saber por
-      // onde despachar — ex: "Jadlog .Package" ou "Correios PAC".
-      shippingService: chosenQuote ? `${chosenQuote.carrier} ${chosenQuote.service}` : "A_COMBINAR",
+      cep: formData.zipCode.replace(/\D/g, ""),
+      items: cartItems.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
+      couponCode: appliedCoupon?.code ?? null,
+      shippingQuoteId: chosenQuote ? chosenQuote.id : "combinar",
     };
 
     try {

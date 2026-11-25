@@ -691,41 +691,113 @@ router.get("/api/admin/frete/status", adminLimiter, requireAdmin, async (req, re
 });
 
 // 4. Checkout - Registra o Pedido e Gera o Link de Pagamento (Mercado Pago)
-router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
-  const { clientName, phone, email, address, items, total, shippingCost, shippingService } = req.body;
+const money = (n: number) => Math.round(n * 100) / 100;
 
-  if (!clientName || !phone || !email || !address || !items || !total) {
+router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
+  const { clientName, phone, email, address, items, cep, couponCode, shippingQuoteId } = req.body;
+
+  if (!clientName || !phone || !email || !address || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Todos os campos de checkout são obrigatórios." });
   }
+
+  // -----------------------------------------------------------------
+  // Preço, desconto e frete são decididos AQUI, nunca pelo que chega no
+  // corpo da requisição. O carrinho é um objeto do navegador: qualquer
+  // pessoa pode editá-lo antes de enviar. Antes desta checagem dava pra
+  // POSTar o mesmo pedido com "price": 0.01 e o link de pagamento do
+  // Mercado Pago saía com esse valor.
+  // -----------------------------------------------------------------
+  const catalog = (await getProductsFromFirestore()) || MOCK_PRODUCTS;
+  const byId = new Map(catalog.map((p: any) => [p.id, p]));
+
+  const orderItems: { productId: string; name: string; quantity: number; unitPrice: number }[] = [];
+  for (const raw of items) {
+    const productId = String(raw?.productId ?? raw?.product?.id ?? "");
+    const product: any = byId.get(productId);
+    if (!product || product.active === false) {
+      return res.status(400).json({ error: "Um dos produtos do carrinho não está mais disponível. Atualize a página." });
+    }
+    const quantity = Math.floor(Number(raw?.quantity));
+    if (!Number.isFinite(quantity) || quantity < 1 || quantity > 99) {
+      return res.status(400).json({ error: `Quantidade inválida para "${product.name}".` });
+    }
+    const promo = Number(product.promoPrice);
+    const unitPrice = money(promo > 0 ? promo : Number(product.price));
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+      return res.status(400).json({ error: `"${product.name}" está sem preço cadastrado.` });
+    }
+    orderItems.push({ productId, name: product.name, quantity, unitPrice });
+  }
+
+  const subtotal = money(orderItems.reduce((acc, i) => acc + i.unitPrice * i.quantity, 0));
+
+  // Cupom revalidado no servidor: o desconto não pode vir pronto do cliente.
+  let discount = 0;
+  let appliedCouponCode: string | null = null;
+  if (couponCode) {
+    const coupons = (await getCouponsFromFirestore()) || [];
+    const coupon = coupons.find((c: Coupon) => c.code === String(couponCode).trim().toUpperCase() && c.active);
+    if (coupon) {
+      discount = money(coupon.type === "percentage"
+        ? subtotal * (coupon.value / 100)
+        : Math.min(coupon.value, subtotal));
+      appliedCouponCode = coupon.code;
+    }
+  }
+
+  // Frete recotado agora. O id da opção identifica a escolha, mas quem diz
+  // o preço é a transportadora, não o navegador.
+  let shippingCost = 0;
+  let shippingService = "A_COMBINAR";
+  if (shippingQuoteId && shippingQuoteId !== "combinar" && cep) {
+    try {
+      const quotes = await getShippingQuotes({
+        destinationCep: String(cep).replace(/\D/g, ""),
+        totalWeightGrams: orderItems.reduce((acc, i) => {
+          const p: any = byId.get(i.productId);
+          return acc + (p?.weightGrams ?? defaultWeightForCategory(p?.category || "")) * i.quantity;
+        }, 0),
+        declaredValue: subtotal
+      });
+      const chosen = quotes.find(q => q.id === shippingQuoteId);
+      if (chosen) {
+        shippingCost = money(chosen.price);
+        shippingService = `${chosen.carrier} ${chosen.service}`.slice(0, 60);
+      }
+    } catch (error: any) {
+      // Frete indisponível não bloqueia a venda: vira "a combinar" e a
+      // Beerlanda acerta o valor depois, como já era o comportamento.
+      console.warn("[Checkout] Recotação de frete falhou, seguindo como A_COMBINAR:", error.message);
+    }
+  }
+
+  const total = money(Math.max(0, subtotal - discount + shippingCost));
 
   const orderId = `BL-${Math.floor(100000 + Math.random() * 900000)}`;
   const orderDate = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
 
-  const formattedItems = items
-    .map((item: any) => `${item.product.name} (x${item.quantity}) - R$ ${(item.product.promoPrice || item.product.price).toFixed(2)}`)
+  const formattedItems = orderItems
+    .map((i) => `${i.name} (x${i.quantity}) - R$ ${i.unitPrice.toFixed(2)}`)
     .join(", ");
-
-  const orderItems = items.map((item: any) => ({
-    productId: item.product.id,
-    name: item.product.name,
-    quantity: item.quantity,
-    unitPrice: item.product.promoPrice || item.product.price
-  }));
 
   const newOrder: Order = {
     id: orderId,
     date: orderDate,
+    createdAt: new Date().toISOString(),
     clientName,
     phone,
     email,
     address,
     items: formattedItems,
     orderItems,
+    subtotal,
+    discount,
+    couponCode: appliedCouponCode || undefined,
     total,
-    shippingCost: Number(shippingCost) || 0,
+    shippingCost,
     // Guarda exatamente o que o cliente escolheu ("Jadlog .Package",
     // "Correios SEDEX"...) — a expedição precisa saber por onde despachar.
-    shippingService: String(shippingService || "A_COMBINAR").slice(0, 60),
+    shippingService,
     paymentStatus: "Pendente (Mercado Pago)",
     paymentMethod: "mercadopago"
   };
@@ -743,13 +815,27 @@ router.post("/api/checkout", publicWriteLimiter, async (req, res) => {
 
   const baseUrl = resolveAppBaseUrl(req);
 
-  const preferenceItems = items.map((item: any) => ({
-    title: item.product.name,
-    quantity: item.quantity,
-    unitPrice: item.product.promoPrice || item.product.price
+  // O Mercado Pago não aceita linha de desconto nem valor negativo, então o
+  // desconto do cupom é diluído proporcionalmente nos itens. Sem isso o site
+  // mostrava o total com desconto e a cobrança saía pelo valor cheio — a
+  // cliente pagava mais do que foi combinado na tela.
+  const discountFactor = subtotal > 0 ? (subtotal - discount) / subtotal : 1;
+  const preferenceItems = orderItems.map((i) => ({
+    title: i.name,
+    quantity: i.quantity,
+    unitPrice: money(i.unitPrice * discountFactor)
   }));
 
-  if (newOrder.shippingCost && newOrder.shippingCost > 0) {
+  // Arredondar item a item deixa alguns centavos de diferença; o resto vai
+  // no primeiro item pra cobrança bater exatamente com o total exibido.
+  const itemsSum = money(preferenceItems.reduce((acc, i) => acc + i.unitPrice * i.quantity, 0));
+  const drift = money(money(subtotal - discount) - itemsSum);
+  if (drift !== 0 && preferenceItems.length > 0) {
+    const first = preferenceItems[0];
+    first.unitPrice = money(first.unitPrice + drift / first.quantity);
+  }
+
+  if (newOrder.shippingCost > 0) {
     preferenceItems.push({
       title: `Frete (${newOrder.shippingService})`,
       quantity: 1,
