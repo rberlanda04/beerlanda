@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CartItem, Coupon, ShippingQuote } from "../types";
 import { formatCurrency, maskPhone, maskCep } from "../utils";
-import { ArrowLeft, AlertCircle, ShoppingBag, Truck, CreditCard, ShieldCheck, RefreshCw, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, AlertCircle, ShoppingBag, Truck, CreditCard, ShieldCheck, RefreshCw, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 
 interface CheckoutViewProps {
   cartItems: CartItem[];
@@ -34,6 +34,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
   const [selectedShipping, setSelectedShipping] = useState<string | null>(null);
   const [isCalculatingShipping, setIsCalculatingShipping] = useState(false);
   const [shippingError, setShippingError] = useState<string | null>(null);
+  const [showAllShipping, setShowAllShipping] = useState(false);
   const lastCalculatedCep = useRef<string>("");
 
   // Busca de endereço pelo CEP
@@ -97,6 +98,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
     setShippingError(null);
     setShippingOptions(null);
     setSelectedShipping(null);
+    setShowAllShipping(false);
 
     try {
       const response = await fetch("/api/shipping/calculate", {
@@ -160,6 +162,21 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
   }
 
   const chosenQuote = shippingOptions?.find((q) => q.id === selectedShipping) || null;
+
+  // O agregador devolve até uma dúzia de transportadoras. Mostrar todas empurra
+  // o botão de pagar pra fora da tela no celular, então ficam as 3 mais baratas
+  // (a lista já vem ordenada por preço) e o resto atrás de "ver todas". Se a
+  // escolhida estiver entre as escondidas, ela aparece junto — senão a pessoa
+  // some com a própria seleção ao recolher a lista.
+  const TOP_SHIPPING = 3;
+  const visibleShippingOptions = (() => {
+    if (!shippingOptions) return [];
+    if (showAllShipping || shippingOptions.length <= TOP_SHIPPING) return shippingOptions;
+    const top = shippingOptions.slice(0, TOP_SHIPPING);
+    if (chosenQuote && !top.some((q) => q.id === chosenQuote.id)) top.push(chosenQuote);
+    return top;
+  })();
+  const hiddenShippingCount = (shippingOptions?.length ?? 0) - visibleShippingOptions.length;
   // "Frete a combinar" entra como zero: o valor é acertado depois, fora do pedido.
   const shippingCost = chosenQuote?.price ?? 0;
   const total = Math.max(0, subtotal - discountAmount + shippingCost);
@@ -584,7 +601,7 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                   </div>
                 ) : shippingOptions ? (
                   <div className="space-y-2">
-                    {shippingOptions.map((opt) => {
+                    {visibleShippingOptions.map((opt) => {
                       const isSelected = selectedShipping === opt.id;
                       return (
                         <button
@@ -611,6 +628,26 @@ export default function CheckoutView({ cartItems, appliedCoupon, onBackToCart }:
                         </button>
                       );
                     })}
+
+                    {hiddenShippingCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllShipping((v) => !v)}
+                        className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-natural-border px-3 py-2 text-[11px] font-bold text-natural-text/70 hover:bg-natural-card hover:text-natural-darkbrown transition-colors cursor-pointer"
+                      >
+                        {showAllShipping ? (
+                          <>
+                            <ChevronUp className="h-3.5 w-3.5" />
+                            Mostrar menos
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="h-3.5 w-3.5" />
+                            Ver todas as {shippingOptions.length} opções
+                          </>
+                        )}
+                      </button>
+                    )}
                   </div>
                 ) : null}
 
